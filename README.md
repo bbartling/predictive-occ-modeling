@@ -64,22 +64,45 @@ This project generates several charts to help understand occupancy patterns in t
 
 ---
 
-## Occupancy Predictor using Pandas, NumPy, and RMSE-based accuracy checks.
+Here’s a tightened-up version you can drop into the README:
 
-Run Script
+
+## Occupancy Predictor using Pandas, NumPy, and RMSE-based accuracy checks
+
+Run the script:
+
 ```bash
 python occupancy_model.py
 ```
 
 The script will:
-- Learn a baseline occupied/unoccupied schedule from historical data (day-of-week × time-of-day).
-- Predict the current occupancy state (OCC/UNOCC) for a given reference time.
-- Compute how many minutes until the next predicted occupancy **start** or **end** and log the transition time.
-- Optionally compare the learned profile to `std_week.csv` and print an RMSE “distance” to your standard week.
 
+* Learn a baseline occupied/unoccupied schedule from historical data (day-of-week × time-of-day).
+* Predict the current occupancy state (OCC/UNOCC) for a given reference time.
+* Compute how many minutes remain until the next predicted occupancy **start** or **end** and log the transition time.
+* Optionally compare the learned profile to `std_week.csv` and print an RMSE “distance” to your standard week.
+
+Example output:
+
+```bash
+> python occupancy_model.py
+Loading data...
+Rows: 8508, days: 91
+Building baseline model...
+Building binary schedule (occupied/unoccupied)...
+
+Reference time: 2024-11-21 17:45:00+00:00 (UTC)
+Predicted current state: OCCUPIED
+Next predicted transition: END in 900 minutes at 2024-11-22 08:45:00+00:00 (UTC)
+
+RMSE vs std_week profile: 9.755
+```
+
+---
 
 ## Future?
-TODO: Optional ML upgrade for smarter occupancy forecasting.
+TODO: Optional ML upgrade for smarter occupancy forecasting?
+TODO: Try in conjuction with an optimal start algorithm which require `Predicted current state` and `Next predicted transition` as inputs.
 
 ---
 
