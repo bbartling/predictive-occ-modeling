@@ -101,8 +101,10 @@ RMSE vs std_week profile: 9.755
 ---
 
 ## Future?
-TODO: Optional ML upgrade for smarter occupancy forecasting?
-TODO: Try in conjuction with an optimal start algorithm which require `Predicted current state` and `Next predicted transition` as inputs.
+1) Try in conjuction with an optimal start algorithm which require `Predicted current state` and `Next predicted transition` as inputs.
+2) The current model predicts **occupied vs unoccupied** by taking the historical average occupancy for the same day-of-week and time-of-day and applying a simple threshold, producing a hard 0/1 result with no probability. Adding a probability layer—such as the historical fraction of times that slot was occupied—would give a confidence measure for each prediction, and you could compare which approach performs better by testing both methods against a held-out portion of the dataset and measuring accuracy or RMSE on true occupancy states. 
+3) Probability methods could be started with lightweight historical-frequency probabilities, then move to simple logistic regression, and finally compare them to more advanced ML models like random forests or LSTMs to see which provides the most reliable occupancy confidence.
+
 
 ---
 
