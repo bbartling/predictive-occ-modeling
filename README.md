@@ -33,7 +33,31 @@ The script will:
    - `avg_occupancy_by_hour.png`
    - `weekday_vs_weekend_occupancy.png`
 
-Open the PNG files with any image viewer to inspect the occupancy patterns.
+---
+
+## 📊 Exploratory Occupancy Plots
+
+This project generates several charts to help understand occupancy patterns in time and magnitude.
+
+- **Hourly Average Occupancy Over Time**  
+  Shows the hourly mean occupancy across the full dataset, highlighting overall usage patterns, gaps in data, and any long-term drift or seasonal effects.
+
+  ![Hourly Average Occupancy Over Time](https://github.com/bbartling/predictive-occ-modeling/raw/develop/charts/hourly_occupancy_timeseries.png)
+
+- **Average Occupancy by Hour of Day**  
+  Aggregates all days together to show a “typical day” profile, useful for building a baseline schedule or optimal start logic.
+
+  ![Average Occupancy by Hour of Day](https://github.com/bbartling/predictive-occ-modeling/raw/develop/charts/avg_occupancy_by_hour.png)
+
+- **Weekday vs Weekend Occupancy Profile**  
+  Compares average hourly occupancy for weekdays versus weekends, revealing differences in schedule, peak times, and potential savings from different control strategies.
+
+  ![Weekday vs Weekend Occupancy Profile](https://github.com/bbartling/predictive-occ-modeling/raw/develop/charts/weekday_vs_weekend_occupancy.png)
+
+- **Occupancy Distribution**  
+  Histogram of all occupancy values, showing how often the space is empty, lightly used, or heavily occupied. This is helpful for threshold selection (e.g., occupied vs unoccupied) and for spotting outliers.
+
+  ![Occupancy Distribution](https://github.com/bbartling/predictive-occ-modeling/raw/develop/charts/occupancy_histogram.png)
 
 ---
 
