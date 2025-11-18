@@ -168,28 +168,18 @@ This matrix functions as a lightweight lookup table for a live Building Automati
 What is the probablitiy that the building will be occupied in 3 hours from now? Do we need to warm up or cool down the building??!
 
 ```lua
-// GOAL: Check if people are coming soon so we can start warming up the building.
+TIME_OFFSET_HOURS = 3
 
-// 1. LOOK INTO THE FUTURE
-// Pick a time ahead of now (e.g., 3 hours ahead) to see if we need to get ready.
-Future_Check_Time = Current_Time + 3_Hours
+PREDICTED_STATE = Check_Static_Schedule(Current_Time + TIME_OFFSET_HOURS)
 
-// 2. ASK THE MODEL
-// Look at the generated schedule and ask: "Will the building be occupied at that future time?"
-Is_People_Coming = Get_Schedule_Status(Future_Check_Time)
-
-// 3. FEED THE OPTIMAL START
-// If the model says "Yes, people are coming," tell the Optimal Start logic to begin calculations.
-IF Is_People_Coming == TRUE THEN
-    // The building needs to be ready! Hand off control to your warmup algorithm.
+IF PREDICTED_STATE == OCCUPIED THEN
     Run_Optimal_Start_Routine()
 ELSE
-    // No one is coming soon. Keep the system in sleep mode.
     Maintain_Night_Setback()
 END IF
 ```
 
-In Python we do this in the `occupancy_model_binary.py` is concept is ran once for demo purposes. 
+In Python we do this in the `occupancy_model_binary.py` once as well for demo concept purposes. 
 
 ```python
 # --- A. Live Dashboard Demo (Using Baseline) ---
@@ -214,7 +204,7 @@ if res:
     print(f"Next Transition: {trans.upper()} in {mins:.0f} mins at {ts} (UTC)")
 ```
 
-The following logs demonstrate the live dashboard functionality, which could be continuously checked on a live system using a Python `while` loop:
+The following logs demonstrate the live dashboard functionality, which could be continuously checked on a live system using a Python `while` loop if Python was available:
 
 ```text
 --- 1. LIVE DASHBOARD DEMO (Baseline) ---
