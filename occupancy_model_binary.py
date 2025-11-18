@@ -145,9 +145,9 @@ def train_random_forest(df_train: pd.DataFrame):
     
     # Define the "Grid" of settings to try
     param_grid = {
-        'n_estimators': [50, 100, 200],      # Number of trees
-        'max_depth': [4, 8, 12, 16, None],      # How deep each tree can grow (prevents overfitting)
-        'min_samples_split': [2, 5, 10, 20],     # Minimum samples required to split a node
+        'n_estimators': [50, 100, 250, 500],      # Number of trees
+        'max_depth': [4, 8, 12, 16, 32, None],      # How deep each tree can grow (prevents overfitting)
+        'min_samples_split': [2, 5, 10, 25, 50],     # Minimum samples required to split a node
         'class_weight': ['balanced']         # Crucial for occupancy (mostly empty vs occupied)
     }
     
