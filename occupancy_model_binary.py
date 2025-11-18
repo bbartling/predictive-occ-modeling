@@ -192,6 +192,38 @@ def export_probability_schedule(prob_table: pd.DataFrame, output_path: str, PROB
     matrix.to_csv(output_path)
     return matrix
 
+def export_ml_schedule(model, synthetic_week_df: pd.DataFrame, output_path: str):
+    """Feeds the synthetic week through the trained ML model (Random Forest)."""
+    
+    X_synthetic = synthetic_week_df[["dow", "minute_of_day"]].values
+    
+    # Predict the 0/1 state for every slot in the synthetic week
+    synthetic_week_df["decision"] = model.predict(X_synthetic)
+    
+    # Pivot into the final CSV format
+    matrix = synthetic_week_df.pivot(
+        index="hour", 
+        columns="dow", 
+        values="decision"
+    ).fillna(0).astype(int)
+    
+    matrix.to_csv(output_path)
+    print(f"   > Exported using the Random Forest Model.")
+
+def build_synthetic_week(step_minutes: int) -> pd.DataFrame:
+    """Creates a DataFrame representing every time slot (row) in a generic week."""
+    slots = []
+    # Loop through 7 days (0=Mon to 6=Sun)
+    for d in range(7):
+        # Loop through all 1440 minutes in a day at the given step
+        for m in range(0, 24 * 60, step_minutes):
+            slots.append({
+                "dow": d,
+                "minute_of_day": m,
+                "hour": m / 60.0
+            })
+    return pd.DataFrame(slots)
+
 # =========================================================
 # MAIN
 # =========================================================
@@ -241,7 +273,7 @@ def main():
     print(results)
     
     winner = results.loc[results["accuracy"].idxmax()]
-    print(f"\n🏆 WINNER: {winner['model']} ({winner['accuracy']:.3f})")
+    print(f"\n WINNER: {winner['model']} ({winner['accuracy']:.3f})")
 
     # Chart
     charts_dir = os.path.join(base, "charts")
@@ -256,10 +288,17 @@ def main():
     # --- D. Export Winner ---
     print("\n--- 3. EXPORTING MASTER SCHEDULE ---")
     out_path = os.path.join(base, "final_predicted_schedule.csv")
-    # We default to exporting the Probability Model as it's usually the most robust
-    # (However, if the Tuned Random Forest wins by a lot, you could swap this logic!)
-    export_probability_schedule(prob_tbl, out_path, PROB_THRESHOLD=0.5)
-    print(f"✅ Saved to: {out_path}")
+    
+    # Logic to select the best model for export
+    if winner['model'] == 'random_forest':
+        # Use the ML model
+        synthetic_week_df = build_synthetic_week(step_minutes)
+        export_ml_schedule(rf_mdl, synthetic_week_df, out_path)
+    else:
+        # Use the Probability model (if it somehow won)
+        export_probability_schedule(prob_tbl, out_path, prob_threshold=0.5)
+
+    print(f" Schedule saved to: {out_path}")
 
 if __name__ == "__main__":
     main()
