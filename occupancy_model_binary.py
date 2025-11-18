@@ -5,7 +5,11 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
+# NEW: Import GridSearchCV
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import GridSearchCV
+
+PROB_THRESHOLD = 0.85
 
 # =========================================================
 # 1. DATA LOADING & HELPERS
@@ -32,7 +36,7 @@ def infer_step_minutes(df: pd.DataFrame) -> int:
 
 
 # =========================================================
-# 2. BASELINE MODEL & LIVE QUERY (Restored Features)
+# 2. BASELINE MODEL & LIVE QUERY
 # =========================================================
 
 def build_baseline_model(df: pd.DataFrame) -> Tuple[pd.DataFrame, int]:
@@ -100,7 +104,7 @@ def minutes_to_next_transition(
 
 
 # =========================================================
-# 3. STD WEEK COMPARISON (Restored Feature)
+# 3. STD WEEK COMPARISON
 # =========================================================
 
 def load_std_week(base: str) -> pd.DataFrame:
@@ -116,7 +120,7 @@ def compare_to_std(pivot: pd.DataFrame, std: pd.DataFrame) -> float:
 
 
 # =========================================================
-# 4. CLASSIFICATION MODELS (Random Forest / Probability)
+# 4. CLASSIFICATION MODELS (Random Forest w/ GRID SEARCH)
 # =========================================================
 
 def add_slot_and_label(df: pd.DataFrame, occ_threshold: float, step_minutes: int) -> pd.DataFrame:
@@ -132,11 +136,30 @@ def train_prob_model(df_train: pd.DataFrame) -> pd.DataFrame:
     return df_train.groupby(["dow", "slot"])["y"].mean().reset_index().rename(columns={"y": "p_occ"})
 
 def train_random_forest(df_train: pd.DataFrame):
+    """
+    Trains a Random Forest using GridSearchCV to find the best hyperparameters.
+    """
+    print("   > Tuning Random Forest (this may take a moment)...")
     X = df_train[["dow", "minute_of_day"]].values
     y = df_train["y"].values
-    rf = RandomForestClassifier(n_estimators=100, max_depth=8, random_state=42, class_weight="balanced")
-    rf.fit(X, y)
-    return rf
+    
+    # Define the "Grid" of settings to try
+    param_grid = {
+        'n_estimators': [50, 100, 200],      # Number of trees
+        'max_depth': [4, 8, 12, 16, None],      # How deep each tree can grow (prevents overfitting)
+        'min_samples_split': [2, 5, 10, 20],     # Minimum samples required to split a node
+        'class_weight': ['balanced']         # Crucial for occupancy (mostly empty vs occupied)
+    }
+    
+    rf = RandomForestClassifier(random_state=42)
+    
+    # cv=3 means "3-Fold Cross Validation" (trains 3 times on different chunks to verify accuracy)
+    grid_search = GridSearchCV(estimator=rf, param_grid=param_grid, cv=3, scoring='accuracy', n_jobs=-1)
+    
+    grid_search.fit(X, y)
+    
+    print(f"   > Best RF Parameters: {grid_search.best_params_}")
+    return grid_search.best_estimator_
 
 def predict_random_forest(model, df_test: pd.DataFrame) -> np.ndarray:
     if model is None: return np.zeros(len(df_test), dtype=int)
@@ -161,9 +184,9 @@ def evaluate_models(df_test: pd.DataFrame, mean_table, prob_table, rf_model, occ
 # 5. EXPORT UTILITY
 # =========================================================
 
-def export_probability_schedule(prob_table: pd.DataFrame, output_path: str, prob_threshold: float = 0.5):
+def export_probability_schedule(prob_table: pd.DataFrame, output_path: str, PROB_THRESHOLD: float = 0.5):
     """Exports the probability model as the Final Master Schedule CSV."""
-    prob_table["decision"] = (prob_table["p_occ"] > prob_threshold).astype(int)
+    prob_table["decision"] = (prob_table["p_occ"] > PROB_THRESHOLD).astype(int)
     prob_table["hour"] = prob_table["slot"] / 60.0
     matrix = prob_table.pivot(index="hour", columns="dow", values="decision").fillna(0).astype(int)
     matrix.to_csv(output_path)
@@ -210,6 +233,8 @@ def main():
     print(f"Training (Rows: {len(df_train)})...")
     mean_tbl = train_mean_model(df_train)
     prob_tbl = train_prob_model(df_train)
+    
+    # The Random Forest training now includes the Grid Search printouts
     rf_mdl = train_random_forest(df_train)
     
     results = evaluate_models(df_test, mean_tbl, prob_tbl, rf_mdl, occ_threshold)
@@ -223,6 +248,7 @@ def main():
     os.makedirs(charts_dir, exist_ok=True)
     plt.figure()
     plt.bar(results["model"], results["accuracy"], color=['#1f77b4', '#ff7f0e', '#2ca02c'])
+    plt.ylim(0, 1.0)
     plt.title("Model Accuracy")
     plt.savefig(os.path.join(charts_dir, "model_comparison_accuracy.png"))
     plt.close()
@@ -231,7 +257,8 @@ def main():
     print("\n--- 3. EXPORTING MASTER SCHEDULE ---")
     out_path = os.path.join(base, "final_predicted_schedule.csv")
     # We default to exporting the Probability Model as it's usually the most robust
-    export_probability_schedule(prob_tbl, out_path, prob_threshold=0.5)
+    # (However, if the Tuned Random Forest wins by a lot, you could swap this logic!)
+    export_probability_schedule(prob_tbl, out_path, PROB_THRESHOLD=0.5)
     print(f"✅ Saved to: {out_path}")
 
 if __name__ == "__main__":

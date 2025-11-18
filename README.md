@@ -105,27 +105,26 @@ python occupancy_model_binary.py
 
 ```text
 Loading data...
-Rows: 8508, days: 91
-Building baseline model...
-Building binary schedule (occupied/unoccupied)...
 
+--- 1. LIVE DASHBOARD DEMO (Baseline) ---
 Reference time: 2024-11-21 17:45:00+00:00 (UTC)
-Predicted current state: OCCUPIED
-Next predicted transition: END in 975 minutes at 2024-11-22 10:00:00+00:00 (UTC)
+Current State: OCCUPIED
+Next Transition: END in 975 mins at 2024-11-22 10:00:00+00:00 (UTC)
+RMSE vs std_week: 9.755
 
-RMSE vs std_week profile: 9.755
+--- 2. MODEL TRAINING & COMPARISON ---
+Training (Rows: 5955)...
+   > Tuning Random Forest (this may take a moment)...
+   > Best RF Parameters: {'class_weight': 'balanced', 'max_depth': 4, 'min_samples_split': 2, 'n_estimators': 200}
+                model  accuracy
+0  baseline_threshold  0.741481
+1   probability_model  0.752840
+2       random_forest  0.788876
 
-Preparing train/test split for model comparison...
-Train samples: 5700, Test samples: 2808
+🏆 WINNER: random_forest (0.789)
 
---- Model Comparison on Held-out Test Data ---
-baseline_threshold: accuracy = 0.745
-probability_model: accuracy = 0.762
-random_forest: accuracy = 0.770
-
-Winner: random_forest (accuracy = 0.770)
-Model comparison plot saved to C:\Users\ben\Documents\predictive-occ-modeling\charts\model_comparison_accuracy.png
-PS C:\Users\ben\Documents\predictive-occ-modeling> 
+--- 3. EXPORTING MASTER SCHEDULE ---
+✅ Saved to: C:\Users\ben\Documents\predictive-occ-modeling\final_predicted_schedule.csv
 ```
 
 ---
@@ -185,6 +184,43 @@ ELSE
     Maintain_Night_Setback()
 END IF
 ```
+
+In Python we do this in the `occupancy_model_binary.py` is concept is ran once for demo purposes. 
+
+```python
+# --- A. Live Dashboard Demo (Using Baseline) ---
+print("\n--- 1. LIVE DASHBOARD DEMO (Baseline) ---")
+
+# 1. Build the schedule from history
+pivot, step_minutes = build_baseline_model(df)
+schedule = predict_schedule(pivot, threshold=occ_threshold)
+
+# 2. Pick "Now" (The last row in your data)
+now = df["time"].iloc[-1] 
+
+# 3. Check status at "Now"
+state_str = "OCCUPIED" if get_predicted_state_at(now, schedule, step_minutes) == 1 else "UNOCCUPIED"
+print(f"Reference time: {now} (UTC)")
+print(f"Current State: {state_str}")
+
+# 4. Look into the future (Loop ahead until state changes)
+res = minutes_to_next_transition(now, schedule, step_minutes)
+if res:
+    mins, trans, ts = res
+    print(f"Next Transition: {trans.upper()} in {mins:.0f} mins at {ts} (UTC)")
+```
+
+The following logs demonstrate the live dashboard functionality, which could be continuously checked on a live system using a Python `while` loop:
+
+```text
+--- 1. LIVE DASHBOARD DEMO (Baseline) ---
+Reference time: 2024-11-21 17:45:00+00:00 (UTC)
+Current State: OCCUPIED
+Next Transition: END in 975 mins at 2024-11-22 10:00:00+00:00 (UTC)
+```
+
+
+---
 
 ## 📜 License
 
