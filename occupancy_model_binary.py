@@ -5,11 +5,8 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
-# NEW: Import GridSearchCV
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.model_selection import GridSearchCV
-
-PROB_THRESHOLD = 0.85
+PROB_THRESHOLD = 0.5  # threshold for deciding occupied from probability model
+OCC_DEADBAND = 1.0    # counts <= this are treated as unoccupied in baseline
 
 # =========================================================
 # 1. DATA LOADING & HELPERS
@@ -41,8 +38,16 @@ def infer_step_minutes(df: pd.DataFrame) -> int:
 
 def build_baseline_model(df: pd.DataFrame) -> Tuple[pd.DataFrame, int]:
     """
-    Build baseline model (Mean Pivot Table).
-    Returns (pivot, step_minutes).
+    Build baseline model (Mean Pivot Table) on *raw counts*.
+
+    Returns
+    -------
+    pivot : DataFrame
+        index = slot (minute_of_day bucket)
+        columns = dow (0..6)
+        values = mean occ
+    step_minutes : int
+        sampling interval in minutes
     """
     step_minutes = infer_step_minutes(df)
     df = df.copy()
@@ -54,12 +59,14 @@ def build_baseline_model(df: pd.DataFrame) -> Tuple[pd.DataFrame, int]:
     # Ensure full 0..1440 window
     all_slots = np.arange(0, 24 * 60, step_minutes)
     pivot = pivot.reindex(all_slots)
-    pivot = pivot.interpolate(limit_direction="both") 
+    pivot = pivot.interpolate(limit_direction="both")
     return pivot, step_minutes
 
 
-def predict_schedule(pivot: pd.DataFrame, threshold: float = 1.0) -> pd.DataFrame:
-    """Convert pivot to binary schedule (0/1)."""
+def predict_schedule(pivot: pd.DataFrame, threshold: float = OCC_DEADBAND) -> pd.DataFrame:
+    """
+    Convert mean-count pivot to binary schedule (0/1) using a deadband threshold.
+    """
     schedule = (pivot > threshold).astype(int)
     return schedule
 
@@ -73,9 +80,15 @@ def _slot_from_timestamp(ts: pd.Timestamp, step_minutes: int) -> Tuple[int, int]
     return dow, slot
 
 
-def get_predicted_state_at(timestamp: pd.Timestamp, schedule: pd.DataFrame, step_minutes: int) -> int:
-    """Return predicted occupancy state (0/1) at a specific timestamp."""
+def get_predicted_state_at(timestamp: pd.Timestamp,
+                           schedule: pd.DataFrame,
+                           step_minutes: int) -> int:
+    """
+    Return predicted occupancy state (0/1) at a specific timestamp
+    using the mean-count baseline schedule.
+    """
     dow, slot = _slot_from_timestamp(timestamp, step_minutes)
+    # Snap to nearest slot if needed
     if slot not in schedule.index:
         slot = int(schedule.index[(schedule.index - slot).abs().argmin()])
     if dow not in schedule.columns:
@@ -89,7 +102,9 @@ def minutes_to_next_transition(
     step_minutes: int,
     max_days_ahead: int = 7
 ) -> Optional[Tuple[float, str, pd.Timestamp]]:
-    """Find minutes until next start/stop event."""
+    """
+    Find minutes until next start/stop event in the baseline schedule.
+    """
     ts = timestamp.tz_convert("UTC") if timestamp.tzinfo else ts.tz_localize("UTC")
     current_state = get_predicted_state_at(ts, schedule, step_minutes)
     max_steps = int((max_days_ahead * 24 * 60) / step_minutes)
@@ -115,114 +130,115 @@ def load_std_week(base: str) -> pd.DataFrame:
 def compare_to_std(pivot: pd.DataFrame, std: pd.DataFrame) -> float:
     """Compare live model to std_week profile using RMSE."""
     model_profile = pivot.mean(axis=1)
-    std_interp = np.interp(model_profile.index, np.linspace(0, 24*60, len(std)), std["median_occ"])
+    std_interp = np.interp(
+        model_profile.index,
+        np.linspace(0, 24 * 60, len(std)),
+        std["median_occ"],
+    )
     return np.sqrt(((model_profile.values - std_interp) ** 2).mean())
 
 
 # =========================================================
-# 4. CLASSIFICATION MODELS (Random Forest w/ GRID SEARCH)
+# 4. PROBABILITY BASELINE (NO ML)
 # =========================================================
 
-def add_slot_and_label(df: pd.DataFrame, occ_threshold: float, step_minutes: int) -> pd.DataFrame:
+def add_slot_and_label(df: pd.DataFrame,
+                       occ_threshold: float,
+                       step_minutes: int) -> pd.DataFrame:
+    """
+    Add 'slot' and binary label y based on raw occ > occ_threshold.
+    """
     df = df.copy()
     df["slot"] = (df["minute_of_day"] // step_minutes) * step_minutes
     df["y"] = (df["occ"] > occ_threshold).astype(int)
     return df
 
+
 def train_mean_model(df_train: pd.DataFrame) -> pd.DataFrame:
-    return df_train.groupby(["dow", "slot"])["occ"].mean().reset_index().rename(columns={"occ": "mean_occ"})
+    """
+    Mean model on continuous occ (used only for comparison).
+    """
+    return (
+        df_train
+        .groupby(["dow", "slot"])["occ"]
+        .mean()
+        .reset_index()
+        .rename(columns={"occ": "mean_occ"})
+    )
+
 
 def train_prob_model(df_train: pd.DataFrame) -> pd.DataFrame:
-    return df_train.groupby(["dow", "slot"])["y"].mean().reset_index().rename(columns={"y": "p_occ"})
-
-def train_random_forest(df_train: pd.DataFrame):
     """
-    Trains a Random Forest using GridSearchCV to find the best hyperparameters.
+    Probability model on binary y (this is the main "Generic Week" schedule).
     """
-    print("   > Tuning Random Forest (this may take a moment)...")
-    X = df_train[["dow", "minute_of_day"]].values
-    y = df_train["y"].values
-    
-    # Define the "Grid" of settings to try
-    param_grid = {
-        'n_estimators': [50, 100, 250, 500],      # Number of trees
-        'max_depth': [4, 8, 12, 16, 32, None],      # How deep each tree can grow (prevents overfitting)
-        'min_samples_split': [2, 5, 10, 25, 50],     # Minimum samples required to split a node
-        'class_weight': ['balanced']         # Crucial for occupancy (mostly empty vs occupied)
-    }
-    
-    rf = RandomForestClassifier(random_state=42)
-    
-    # cv=3 means "3-Fold Cross Validation" (trains 3 times on different chunks to verify accuracy)
-    grid_search = GridSearchCV(estimator=rf, param_grid=param_grid, cv=3, scoring='accuracy', n_jobs=-1)
-    
-    grid_search.fit(X, y)
-    
-    print(f"   > Best RF Parameters: {grid_search.best_params_}")
-    return grid_search.best_estimator_
+    return (
+        df_train
+        .groupby(["dow", "slot"])["y"]
+        .mean()
+        .reset_index()
+        .rename(columns={"y": "p_occ"})
+    )
 
-def predict_random_forest(model, df_test: pd.DataFrame) -> np.ndarray:
-    if model is None: return np.zeros(len(df_test), dtype=int)
-    X = df_test[["dow", "minute_of_day"]].values
-    return model.predict(X)
 
-def evaluate_models(df_test: pd.DataFrame, mean_table, prob_table, rf_model, occ_threshold=1.0, prob_thresh=0.5):
-    merged = df_test.merge(mean_table, on=["dow", "slot"], how="left") \
-                    .merge(prob_table, on=["dow", "slot"], how="left")
-    y_true = merged["y"]
-    
-    acc_mean = ((merged["mean_occ"] > occ_threshold).astype(int).fillna(0) == y_true).mean()
-    acc_prob = ((merged["p_occ"] > prob_thresh).astype(int).fillna(0) == y_true).mean()
-    acc_rf = (predict_random_forest(rf_model, merged) == y_true).mean()
+def evaluate_baselines(df_test: pd.DataFrame,
+                       mean_table: pd.DataFrame,
+                       prob_table: pd.DataFrame,
+                       occ_threshold: float = OCC_DEADBAND,
+                       prob_thresh: float = PROB_THRESHOLD) -> pd.DataFrame:
+    """
+    Compare:
+      - threshold on mean_occ (continuous baseline)
+      - probability model p_occ (main generic-week schedule)
+    """
+    merged = (
+        df_test
+        .merge(mean_table, on=["dow", "slot"], how="left")
+        .merge(prob_table, on=["dow", "slot"], how="left")
+    )
+
+    y_true = merged["y"].astype(int)
+
+    # Mean-count threshold baseline
+    y_pred_mean = (merged["mean_occ"] > occ_threshold).astype(int).fillna(0)
+
+    # Probability baseline
+    y_pred_prob = (merged["p_occ"] > prob_thresh).astype(int).fillna(0)
+
+    acc_mean = (y_pred_mean == y_true).mean()
+    acc_prob = (y_pred_prob == y_true).mean()
 
     return pd.DataFrame({
-        "model": ["baseline_threshold", "probability_model", "random_forest"],
-        "accuracy": [acc_mean, acc_prob, acc_rf]
+        "model": ["baseline_threshold", "probability_model"],
+        "accuracy": [acc_mean, acc_prob],
     })
 
+
 # =========================================================
-# 5. EXPORT UTILITY
+# 5. EXPORT UTILITY (PROBABILITY MODEL ONLY)
 # =========================================================
 
-def export_probability_schedule(prob_table: pd.DataFrame, output_path: str, PROB_THRESHOLD: float = 0.5):
-    """Exports the probability model as the Final Master Schedule CSV."""
-    prob_table["decision"] = (prob_table["p_occ"] > PROB_THRESHOLD).astype(int)
+def export_probability_schedule(prob_table: pd.DataFrame,
+                                output_path: str,
+                                prob_threshold: float = PROB_THRESHOLD):
+    """
+    Exports the probability model as the Final Master Schedule CSV.
+
+    - Uses p_occ > prob_threshold → decision (0/1)
+    - Pivots into matrix: rows = hour, cols = dow (0..6)
+    """
+    prob_table = prob_table.copy()
+    prob_table["decision"] = (prob_table["p_occ"] > prob_threshold).astype(int)
     prob_table["hour"] = prob_table["slot"] / 60.0
-    matrix = prob_table.pivot(index="hour", columns="dow", values="decision").fillna(0).astype(int)
+
+    matrix = (
+        prob_table
+        .pivot(index="hour", columns="dow", values="decision")
+        .fillna(0)
+        .astype(int)
+    )
     matrix.to_csv(output_path)
     return matrix
 
-def export_ml_schedule(model, synthetic_week_df: pd.DataFrame, output_path: str):
-    """Feeds the synthetic week through the trained ML model (Random Forest)."""
-    
-    X_synthetic = synthetic_week_df[["dow", "minute_of_day"]].values
-    
-    # Predict the 0/1 state for every slot in the synthetic week
-    synthetic_week_df["decision"] = model.predict(X_synthetic)
-    
-    # Pivot into the final CSV format
-    matrix = synthetic_week_df.pivot(
-        index="hour", 
-        columns="dow", 
-        values="decision"
-    ).fillna(0).astype(int)
-    
-    matrix.to_csv(output_path)
-    print(f"   > Exported using the Random Forest Model.")
-
-def build_synthetic_week(step_minutes: int) -> pd.DataFrame:
-    """Creates a DataFrame representing every time slot (row) in a generic week."""
-    slots = []
-    # Loop through 7 days (0=Mon to 6=Sun)
-    for d in range(7):
-        # Loop through all 1440 minutes in a day at the given step
-        for m in range(0, 24 * 60, step_minutes):
-            slots.append({
-                "dow": d,
-                "minute_of_day": m,
-                "hour": m / 60.0
-            })
-    return pd.DataFrame(slots)
 
 # =========================================================
 # MAIN
@@ -230,17 +246,17 @@ def build_synthetic_week(step_minutes: int) -> pd.DataFrame:
 
 def main():
     base = os.path.dirname(os.path.abspath(__file__))
-    occ_threshold = 1.0 # Deadband: Counts <= 1 are ignored
+    occ_threshold = OCC_DEADBAND  # deadband for "occupied" based on raw count
 
     print("Loading data...")
     df = load_data(base)
-    
-    # --- A. Live Dashboard Demo (Using Baseline) ---
+
+    # --- 1. LIVE DASHBOARD DEMO (Using Mean Baseline) ---
     print("\n--- 1. LIVE DASHBOARD DEMO (Baseline) ---")
     pivot, step_minutes = build_baseline_model(df)
     schedule = predict_schedule(pivot, threshold=occ_threshold)
-    
-    now = df["time"].iloc[-1] # Use last timestamp in file as "Now"
+
+    now = df["time"].iloc[-1]  # Use last timestamp in file as "Now"
     state_str = "OCCUPIED" if get_predicted_state_at(now, schedule, step_minutes) == 1 else "UNOCCUPIED"
     print(f"Reference time: {now} (UTC)")
     print(f"Current State: {state_str}")
@@ -249,56 +265,47 @@ def main():
     if res:
         mins, trans, ts = res
         print(f"Next Transition: {trans.upper()} in {mins:.0f} mins at {ts} (UTC)")
-    
-    # --- B. Std Week Comparison ---
+
+    # --- 2. Std Week Comparison (Optional) ---
     std_path = os.path.join(base, "std_week.csv")
     if os.path.exists(std_path):
         rmse = compare_to_std(pivot, load_std_week(base))
         print(f"RMSE vs std_week: {rmse:.3f}")
 
-    # --- C. Model Training & Comparison ---
-    print("\n--- 2. MODEL TRAINING & COMPARISON ---")
+    # --- 3. Probability Baseline Training & Comparison ---
+    print("\n--- 2. BASELINE TRAINING & COMPARISON (NO ML) ---")
     df_labeled = add_slot_and_label(df, occ_threshold, step_minutes)
     split_idx = int(len(df_labeled) * 0.70)
-    df_train, df_test = df_labeled.iloc[:split_idx].copy(), df_labeled.iloc[split_idx:].copy()
-    
-    print(f"Training (Rows: {len(df_train)})...")
+    df_train = df_labeled.iloc[:split_idx].copy()
+    df_test = df_labeled.iloc[split_idx:].copy()
+
+    print(f"Training rows: {len(df_train)}, Test rows: {len(df_test)}")
+
     mean_tbl = train_mean_model(df_train)
     prob_tbl = train_prob_model(df_train)
-    
-    # The Random Forest training now includes the Grid Search printouts
-    rf_mdl = train_random_forest(df_train)
-    
-    results = evaluate_models(df_test, mean_tbl, prob_tbl, rf_mdl, occ_threshold)
-    print(results)
-    
-    winner = results.loc[results["accuracy"].idxmax()]
-    print(f"\n WINNER: {winner['model']} ({winner['accuracy']:.3f})")
 
-    # Chart
+    results = evaluate_baselines(df_test, mean_tbl, prob_tbl,
+                                 occ_threshold=occ_threshold,
+                                 prob_thresh=PROB_THRESHOLD)
+    print(results)
+
+    # Simple bar chart for documentation / QA
     charts_dir = os.path.join(base, "charts")
     os.makedirs(charts_dir, exist_ok=True)
     plt.figure()
-    plt.bar(results["model"], results["accuracy"], color=['#1f77b4', '#ff7f0e', '#2ca02c'])
+    plt.bar(results["model"], results["accuracy"], color=["#1f77b4", "#ff7f0e"])
     plt.ylim(0, 1.0)
-    plt.title("Model Accuracy")
-    plt.savefig(os.path.join(charts_dir, "model_comparison_accuracy.png"))
+    plt.title("Baseline Model Accuracy (No ML)")
+    plt.ylabel("Accuracy")
+    plt.savefig(os.path.join(charts_dir, "baseline_model_accuracy.png"))
     plt.close()
 
-    # --- D. Export Winner ---
-    print("\n--- 3. EXPORTING MASTER SCHEDULE ---")
+    # --- 4. EXPORTING MASTER SCHEDULE (PROBABILITY MODEL ONLY) ---
+    print("\n--- 3. EXPORTING MASTER SCHEDULE (Probability Model) ---")
     out_path = os.path.join(base, "final_predicted_schedule.csv")
-    
-    # Logic to select the best model for export
-    if winner['model'] == 'random_forest':
-        # Use the ML model
-        synthetic_week_df = build_synthetic_week(step_minutes)
-        export_ml_schedule(rf_mdl, synthetic_week_df, out_path)
-    else:
-        # Use the Probability model (if it somehow won)
-        export_probability_schedule(prob_tbl, out_path, prob_threshold=0.5)
-
+    export_probability_schedule(prob_tbl, out_path, prob_threshold=PROB_THRESHOLD)
     print(f" Schedule saved to: {out_path}")
+    print(f" Using probability baseline with threshold={PROB_THRESHOLD}")
 
 if __name__ == "__main__":
     main()

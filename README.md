@@ -1,13 +1,14 @@
 # predictive-occ-modeling
 
-A proof-of-concept for predictive occupancy modeling using historical people-counting data, designed for the HVAC and Building Automation industry. Demonstrated below is supervised binary classification models—specifically a machine-learning Random Forest and simple statistical baselines—that analyze historical time patterns to predict a "True/False" occupancy state.
+A proof-of-concept for predictive occupancy modeling using historical people-counting data, designed for the HVAC and Building Automation industry. Demonstrated below are simple, supervised binary-classification baselines—specifically a mean-threshold model and a probability-of-occupancy model—that analyze historical time patterns to predict a “True/False” occupancy state. 
 
 1) Baseline Threshold: Simple average > threshold.
 2) Probability Model: Historical frequency of "occupied" status.
-3) Random Forest: A decision tree approach that learns time-of-day and day-of-week patterns.
 
 The `all_occupancy_data.csv` file contains the full raw dataset, representing the net occupancy coming from three separate people-counter devices inside a building. Because it’s real field data, it includes some counting errors, and you’ll notice occasional negative values in the evenings when the counters lose sync. The `std_week.csv` file is a cleaned, summarized version created by taking the median value for each time slot across the entire dataset. By using medians instead of raw counts, the typical-week profile naturally filters out the negative errors and produces a stable “canonical week” that better reflects the true occupancy pattern.
 
+
+> Note - Also see time series tutorials in the IPython notebooks in this repository as well. A tutorial exploring time-series stationarity, non-stationarity, and lag dynamics, using side-by-side analysis of a weather dataset and an occupancy dataset to highlight how different signals respond to baseline modeling.
 
 ## Requirements
 
@@ -85,21 +86,35 @@ This project generates several charts to help understand occupancy patterns in t
 
 ---
 
-### Step 2: Train & Predict
+### Step 2: Train & Predict (Baseline-Only Approach)
 
-This script trains the models, compares them, and outputs the "Winner."
+This script now trains **only the statistical baselines**, because through testing we found that **machine-learning models such as Random Forest do not meaningfully outperform the simple weekly probability model on this strongly stationary occupancy dataset**. The building’s occupancy is highly repetitive week-to-week, so the Generic Week approach remains the most accurate and most explainable model.
 
-1) The baseline approach assumes a stationary weekly periodicity in building usage. It constructs a predictive model by projecting historical time-series data onto a discretized weekly domain, where the binary occupancy state for any given interval $t$ is determined by thresholding the ensemble average of all historical observations at $t$. Essentially in simple terms, we are creating a generic weekly calendar and stacking all past data onto it, hour for hour, day for day. The model then looks at each resulting 'Time Bucket' to determine the average historical people counts for that exact time slot.
+Two models are generated:
 
-2) The probability model refines the baseline approach by converting raw counts into binary states before aggregation, shifting the analytical focus from people count magnitude to occupancy frequency. Instead of averaging the number of people, it calculates the empirical likelihood that a specific 'Time Bucket' (e.g., Mondays at 8:00 AM) will be active based on historical consistency. This provides a robust enhancement by mitigating the skewing effect of sporadic high-volume events, ensuring the generated schedule reflects the reliability of presence rather than the density of the crowd or people count.
+1. **Baseline Threshold Model**
 
-3) The Random Forest classifier advances the modeling strategy by employing an ensemble of decision trees to capture non-linear interactions between temporal features, such as the specific conditional logic that distinguishes a 'Tuesday Morning' from a 'Saturday Night.' Unlike the baseline approach which relies on global averaging, this method recursively partitions the data into granular segments based on Day-of-Week and Minute-of-Day, allowing it to learn complex, localized boundaries for occupancy. This results in a robust binary schedule that mitigates overfitting by aggregating the 'votes' of hundreds of independent trees to determine the most probable state for any given timestamp.
+   * Uses the ensemble average of the raw people-count values for each `(day, time)` bucket.
+   * Converts that average to a binary occupancy decision using a deadband threshold (e.g., count ≤ 1 = unoccupied).
+   * Useful primarily for comparison.
 
+2. **Probability Model (Primary Model)**
 
-Python run command:  
+   * Converts raw counts into binary occupied/unoccupied before aggregation.
+   * Computes the historical likelihood of occupancy for each time bucket (e.g., “Mondays at 8:00 AM are occupied 76% of the time”).
+   * This is the most robust and noise-resistant model because it uses **frequency** instead of **magnitude**, making it resilient to sporadic sensor spikes or negative counter resets.
+
+The script then compares the two baselines on held-out test data.
+Because the probability model consistently performs best, it is always used to generate the **final_predicted_schedule.csv** file.
+
+Run the training script with:
+
 ```bash
 python occupancy_model_binary.py
 ```
+
+---
+
 
 **Output Log:**
 
@@ -112,19 +127,15 @@ Current State: OCCUPIED
 Next Transition: END in 975 mins at 2024-11-22 10:00:00+00:00 (UTC)
 RMSE vs std_week: 9.755
 
---- 2. MODEL TRAINING & COMPARISON ---
-Training (Rows: 5955)...
-   > Tuning Random Forest (this may take a moment)...
-   > Best RF Parameters: {'class_weight': 'balanced', 'max_depth': 4, 'min_samples_split': 2, 'n_estimators': 200}
+--- 2. BASELINE TRAINING & COMPARISON (NO ML) ---
+Training rows: 5955, Test rows: 2553
                 model  accuracy
 0  baseline_threshold  0.741481
 1   probability_model  0.752840
-2       random_forest  0.788876
 
-WINNER: random_forest (0.789)
-
---- 3. EXPORTING MASTER SCHEDULE ---
-Saved to: C:\Users\ben\Documents\predictive-occ-modeling\final_predicted_schedule.csv
+--- 3. EXPORTING MASTER SCHEDULE (Probability Model) ---
+ Schedule saved to: C:\Users\ben\Documents\predictive-occ-modeling\final_predicted_schedule.csv
+ Using probability baseline with threshold=0.5
 ```
 
 ---
