@@ -79,6 +79,12 @@ modules:
   together.
 
 
+## Model Used
+
+This project uses simple, time-slot–based statistical baseline models that learn typical occupancy patterns directly from historical data. Rather than relying on machine-learning algorithms, the models use either the mean occupancy count or the historical probability of occupancy for each discrete interval (such as 15-minute slots in a 7-day weekly cycle) and convert these values into a binary occupied/unoccupied schedule based on a chosen `prob_threshold`. Because the approach is non-parametric and frequency-based, it remains highly explainable and robust to noisy sensor data while being lightweight enough to run on Building Automation Systems. From a statistical perspective, the method estimates the empirical distribution of occupancy over repeating weekly cycles, producing a stable schedule whenever the underlying time-series data is stationary.
+
+
+
 ---
 
 <details>
@@ -95,7 +101,39 @@ cd predictive-occ-modeling-develop
 pip install pandas numpy matplotlib seaborn statsmodels
 ```
 
-## Usage
+---
+
+## Usage and Difference Between `--deadband` and `--prob_threshold` settings
+
+> `--deadband` (applies during *data cleaning*)**
+
+**Purpose:**
+To convert raw occupancy people counts (e.g., 0, 1, 2, 3 people) into a **clean binary signal** that removes noise.
+
+**How it works:**
+If `occ ≤ deadband`, treat as **unoccupied (0)**.
+If `occ > deadband`, treat as **occupied (1)**.
+
+**Example with `--deadband 1.0`:**
+
+* 0 → unoccupied
+* 1 → unoccupied
+* 2 → occupied
+* 8 → occupied
+
+This is used **before modeling** to create the `y` binary occupancy flag.
+
+---
+
+> `--prob_threshold` (applies during *schedule generation*)**
+
+**Purpose:**
+To convert the model’s **historical occupancy probability** into a final binary schedule.
+
+**How it works:**
+If the probability of occupancy in that time slot ≥ `prob_threshold`, mark it as **occupied (1)**.
+
+---
 
 Run the pipeline on the sample dataset like so on Linux/Mac:
 
