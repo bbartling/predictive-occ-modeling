@@ -1,155 +1,183 @@
-# predictive-occ-modeling
+# Predictive Occupancy Modeling
 
-A proof-of-concept for predictive occupancy modeling using historical people-counting data, designed for the HVAC and Building Automation industry. Demonstrated below are simple, supervised binary-classification baselines—specifically a mean-threshold model and a probability-of-occupancy model—that analyze historical time patterns to predict a “True/False” occupancy state. 
+> **What is the probability that a zone is occupied or unoccupied in the near term future?**
 
-1) Baseline Threshold: Simple average > threshold.
-2) Probability Model: Historical frequency of "occupied" status.
+This repository provides a framework for answering that question using
+historical occupancy sensor data.  It has been completely refactored
+from the original proof‑of‑concept into a reusable Python package with
+a clear folder structure and command‑line interface.  The goal is to
+make it easy to analyse arbitrary time‑series datasets, determine
+whether they are sufficiently stationary, build simple baseline
+models, evaluate those models and export a schedule lookup table that
+a Building Automation System (BAS) can consume.
 
-The `all_occupancy_data.csv` file contains the full raw dataset, representing the net occupancy coming from three separate people-counter devices inside a building. Because it’s real field data, it includes some counting errors, and you’ll notice occasional negative values in the evenings when the counters lose sync. The `std_week.csv` file is a cleaned, summarized version created by taking the median value for each time slot across the entire dataset. By using medians instead of raw counts, the typical-week profile naturally filters out the negative errors and produces a stable “canonical week” that better reflects the true occupancy pattern.
+## Why stationarity matters
 
+A stationary time series has a constant mean, variance and
+autocorrelation over time【502360774470064†L50-L102】.  Many forecasting
+techniques assume that the data are stationary; if they are not,
+models can produce unreliable results.  To assess stationarity we
+employ two complementary tests:
 
-> Note - Also see time series tutorials in the IPython notebooks in this repository as well. A tutorial exploring time-series stationarity, non-stationarity, and lag dynamics, using side-by-side analysis of a weather dataset and an occupancy dataset to highlight how different signals respond to baseline modeling.
+* **Augmented Dickey–Fuller (ADF) test:** the null hypothesis is
+  that the series contains a unit root (i.e. it is non‑stationary).
+  A small p‑value allows us to reject non‑stationarity and conclude
+  that the series is stationary【502360774470064†L199-L212】.
+* **Kwiatkowski–Phillips–Schmidt–Shin (KPSS) test:** the null
+  hypothesis is that the series is stationary around a deterministic
+  trend.  A large p‑value (greater than 0.05) indicates stationarity
+  while a small p‑value suggests non‑stationarity【502360774470064†L243-L253】.
 
-## Requirements
+If both tests agree that the occupancy signal is stationary then a
+simple probability‑of‑occupancy model often outperforms more complex
+techniques.  Stationary signals are common in buildings with highly
+repetitive weekly occupancy patterns, and in such cases the
+probability model is robust to sensor noise because it uses the
+historical frequency of occupancy rather than raw counts.
 
-Install Python packages
-```bash
-pip install pandas matplotlib scikit-learn
+## Repository structure
+
+```
+predictive-occ-modeling-develop/
+├── data/            # Example datasets (occupancy and weather)
+├── notebooks/       # Jupyter notebooks for exploratory analysis
+├── plots/           # Generated figures (created at runtime)
+├── src/             # Python package containing the modelling code
+└── README.md        # This file
 ```
 
-## How to Run
+### Data
 
-### Step 1: Clean & Analyze
+The `data` folder includes a sample dataset (`occupancy_sample.csv`) of
+15‑minute people‑count measurements from a commercial building.  Each
+row contains a UTC timestamp (`time`) and a raw occupancy count
+(`occ`).  Negative counts in the sample represent counter resets and
+are clipped to zero during cleaning.  A deadband filter (counts ≤ 1
+are treated as unoccupied) produces a binary occupancy signal that
+removes spurious noise.
 
-This script cleans the raw data, applies the deadband filter, and visualizes the results.
+If you wish to apply the pipeline to your own data, format your CSV
+with at least a timestamp column and a numeric occupancy column.  The
+column names can be customised via command‑line arguments.
+
+### Notebooks
+
+The `notebooks` folder contains an example Jupyter notebook that
+demonstrates concepts such as stationarity tests, baseline models and
+lag analysis.  It uses both the occupancy dataset and a weather
+dataset to highlight differences between stationary and non‑stationary
+signals.
+
+### Source code
+
+The `src` package encapsulates the modelling logic into reusable
+modules:
+
+* `data_processing.py` – loading and cleaning arbitrary occupancy
+  datasets.
+* `stationarity.py` – wrappers around the ADF and KPSS tests.
+* `baseline_models.py` – simple mean‑count and probability baselines,
+  accuracy evaluation and schedule export utilities.
+* `plotting.py` – functions for generating exploratory plots.
+* `main.py` – a command‑line entry point that ties everything
+  together.
+
+## Installation
+
+Clone the repository and install the required packages.  The
+dependencies are minimal: `pandas`, `numpy`, `matplotlib`, `seaborn`
+and `statsmodels` for the stationarity tests.
 
 ```bash
-python occupancy_clean_and_analyze.py
+git clone <this‑repo>
+cd predictive-occ-modeling-develop
+pip install pandas numpy matplotlib seaborn statsmodels
 ```
 
-**Output Log:**
+## Usage
+
+Run the pipeline on the sample dataset like so on Linux/Mac:
+
+```bash
+python -m src.main \
+  --data data/occupancy_sample.csv \
+  --plots_dir plots \
+  --schedule_path data/final_schedule.csv \
+  --deadband 1.0 \
+  --prob_threshold 0.5
+```
+
+Windows on PowerShell:
+
+```powershell
+python -m src.main `
+    --data "data/occupancy_sample.csv" `
+    --plots_dir "plots" `
+    --schedule_path "data/final_schedule.csv" `
+    --deadband 1.0 `
+    --prob_threshold 0.5
+```
+
+The script will:
+
+1. **Load and inspect the data.** It prints the range of timestamps
+   and basic statistics, then performs the ADF and KPSS tests.
+2. **Clean the data.** Negative counts are clipped to zero, counts
+   within the deadband are set to zero and a binary occupancy flag is
+   created.
+3. **Generate plots.** Several figures are written into the
+   `plots_dir`, including a time series plot, histogram, weekday vs.
+   weekend comparison, probability heatmap and a raw vs. cleaned
+   overlay.
+4. **Train baseline models.** The dataset is split into a 70% training
+   set and a 30% test set.  A mean‑count baseline and a probability
+   baseline are fitted on the training data and evaluated on the test
+   data.  A bar chart summarises their accuracies.
+5. **Export a schedule.** Using the probability baseline trained on
+   the full dataset, the script outputs a matrix lookup table to
+   `schedule_path`.  This CSV has rows labelled by fractional hours
+   and columns labelled by day of week (0=Monday).  A value of 1
+   indicates the zone is expected to be occupied at that time; 0
+   indicates unoccupied.  A BAS can look up the current day and time
+   in this table to obtain a simple, data‑driven occupancy prediction.
+
+
+Example output:
 
 ```text
-Loading data from: C:\Users\ben\Documents\predictive-occ-modeling\all_occupancy_data.csv
----- BASIC INFO ----
-Start: 2024-08-22 00:00:00+00:00
-End: 2024-11-21 17:45:00+00:00
-Rows: 8508
-Unique days: 91
+Loading data from: data/occupancy_sample.csv
 
-Occupancy describe:
-count    8508.000000
-mean        5.538434
-std         7.188722
-min        -9.000000
-25%         0.000000
-50%         3.000000
-75%         9.000000
-max        32.000000
-Name: occ, dtype: float64
+---- STATIONARITY TESTS ----
+ADF Test: p-value = 0.0000 → Stationary
+C:\Users\ben\Documents\predictive-occ-modeling\src\stationarity.py:112: InterpolationWarning: The test statistic is outside of the range of p-values available in the
+look-up table. The actual p-value is greater than the p-value returned.
 
-Fraction of zero occupancy: 0.22167371885284437
-Charts saved to: C:\Users\ben\Documents\predictive-occ-modeling\charts
-```
-Fraction of zero occupancy reveals that the sensors reported exactly 0 people 22% of the time in the dataset and 78% of time the sensors reported > 0 people (even just 1 person).
+  stat, p_value, lags, critical_values = kpss(y, regression=regression, nlags="auto")
+KPSS Test: p-value = 0.1000 → Stationary
+The occupancy series appears to be stationary based on both tests.
 
----
+Generating plots...
+All plots saved to: plots
 
-## 📊 Exploratory Occupancy Plots
-
-This project generates several charts to help understand occupancy patterns in time and magnitude.
-
-- **Hourly Average Occupancy Over Time**  
-  Sensor Noise vs. Cleaned Signal: This chart overlays the raw sensor data (gray) with our processed model input (green). It visually demonstrates how the "Deadband Filter" successfully suppresses low-level sensor noise ("ghost counts"), revealing the true occupancy profile without the false positives that cause energy waste.
-
-  ![Hourly Average Occupancy Over Time](https://github.com/bbartling/predictive-occ-modeling/raw/develop/charts/raw_vs_clean_timeseries.png)
-
-- **Average Occupancy by Hour of Day**  
-  Aggregates all days together to show a “typical day” profile, useful for building a baseline schedule or optimal start logic.
-
-  ![Average Occupancy by Hour of Day](https://github.com/bbartling/predictive-occ-modeling/raw/develop/charts/avg_occupancy_by_hour.png)
-
-- **Weekday vs Weekend Occupancy Profile**  
-  Compares average hourly occupancy for weekdays versus weekends, revealing differences in schedule, peak times, and potential savings from different control strategies.
-
-  ![Weekday vs Weekend Occupancy Profile](https://github.com/bbartling/predictive-occ-modeling/raw/develop/charts/weekday_vs_weekend_occupancy.png)
-
-- **Occupancy Distribution**  
-  Histogram of all occupancy values, showing how often the space is empty, lightly used, or heavily occupied. This is helpful for threshold selection (e.g., occupied vs unoccupied) and for spotting outliers.
-
-  ![Occupancy Distribution](https://github.com/bbartling/predictive-occ-modeling/raw/develop/charts/occupancy_histogram.png)
-
-- **Weekday Summary Heatmap Distribution**  
-  The heatmap describes the most occupied days and hours, visualizing the patterns very clearly between hours and weekedays.
-
-  ![Occupancy Distribution](https://github.com/bbartling/predictive-occ-modeling/raw/develop/charts/occupancy_probability_heatmap.png)
-
----
-
-### Step 2: Train & Predict (Baseline-Only Approach)
-
-This script now trains **only the statistical baselines**, because through testing we found that **machine-learning models such as Random Forest do not meaningfully outperform the simple weekly probability model on this strongly stationary occupancy dataset**. The building’s occupancy is highly repetitive week-to-week, so the Generic Week approach remains the most accurate and most explainable model.
-
-Two models are generated:
-
-1. **Baseline Threshold Model**
-
-   * Uses the ensemble average of the raw people-count values for each `(day, time)` bucket.
-   * Converts that average to a binary occupancy decision using a deadband threshold (e.g., count ≤ 1 = unoccupied).
-   * Useful primarily for comparison.
-
-2. **Probability Model (Primary Model)**
-
-   * Converts raw counts into binary occupied/unoccupied before aggregation.
-   * Computes the historical likelihood of occupancy for each time bucket (e.g., “Mondays at 8:00 AM are occupied 76% of the time”).
-   * This is the most robust and noise-resistant model because it uses **frequency** instead of **magnitude**, making it resilient to sporadic sensor spikes or negative counter resets.
-
-The script then compares the two baselines on held-out test data.
-Because the probability model consistently performs best, it is always used to generate the **final_predicted_schedule.csv** file.
-
-Run the training script with:
-
-```bash
-python occupancy_model_binary.py
-```
-
----
-
-
-**Output Log:**
-
-```text
-Loading data...
-
---- 1. LIVE DASHBOARD DEMO (Baseline) ---
-Reference time: 2024-11-21 17:45:00+00:00 (UTC)
-Current State: OCCUPIED
-Next Transition: END in 975 mins at 2024-11-22 10:00:00+00:00 (UTC)
-RMSE vs std_week: 9.755
-
---- 2. BASELINE TRAINING & COMPARISON (NO ML) ---
-Training rows: 5955, Test rows: 2553
+---- BASELINE TRAINING & COMPARISON ----
                 model  accuracy
-0  baseline_threshold  0.741481
+0  baseline_threshold  0.759499
 1   probability_model  0.752840
 
---- 3. EXPORTING MASTER SCHEDULE (Probability Model) ---
- Schedule saved to: C:\Users\ben\Documents\predictive-occ-modeling\final_predicted_schedule.csv
- Using probability baseline with threshold=0.5
+---- EXPORTING FINAL SCHEDULE ----
+Final schedule saved to: data/final_schedule.csv
+RMSE vs std_week profile: 9.715
+
+What is the probability that a zone is occupied or unoccupied in the near term future?
+This pipeline estimates that probability using historical patterns.  The exported lookup table provides a simple way for a BAS to answer that question at runtime.
+
 ```
 
----
+<details>
+<summary>Conceptual idea of extending the framework</summary>
 
 
-## Model Comparison Plot
-
-![Model Plots](https://github.com/bbartling/predictive-occ-modeling/raw/develop/charts/model_comparison_accuracy.png)
-
----
-
-## Finalized Matrix Lookup Table for Building Automation
-
-**Building Automation Systems (BAS) do not natively model data** or support complex analysis libraries like Python or machine learning frameworks. Historically, these data modeling processes have been handled by specialized Smart Building IoT platforms.
+To predict occupancy on live building control systems, by nature operations technology (OT) like **Building Automation Systems (BAS) do not natively model data** or support complex analysis libraries like Python or machine learning frameworks. Historically, these data modeling processes have been handled by specialized Smart Building IoT platforms.
 
 However, many modern BAS platforms are capable of **parsing and ingesting CSV files**. Our `final_predicted_schedule.csv` leverages this capability; it is a static **Matrix Lookup Table** that a BAS platform can read. By comparing the current time to the table's structure, the system can instantly retrieve a **modeled predictive occupancy value** (0 or 1), which can then be used to control HVAC scheduling and optimal start algorithms.
 
@@ -223,6 +251,9 @@ Reference time: 2024-11-21 17:45:00+00:00 (UTC)
 Current State: OCCUPIED
 Next Transition: END in 975 mins at 2024-11-22 10:00:00+00:00 (UTC)
 ```
+
+</details>
+
 
 ---
 
