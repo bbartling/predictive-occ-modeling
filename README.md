@@ -219,8 +219,7 @@ This pipeline estimates that probability using historical patterns.  The exporte
 <details>
 <summary>Conceptual idea of extending the framework</summary>
 
-
-To predict occupancy on live building control systems, by nature operations technology (OT) like **Building Automation Systems (BAS) do not natively model data** or support complex analysis libraries like Python or machine learning frameworks. Historically, these data modeling processes have been handled by specialized Smart Building IoT platforms.
+To predict occupancy on live building control systems, operations technology (OT) such as **Building Automation Systems (BAS)** typically does not natively support data modeling or complex analysis libraries like Python, Pandas, NumPy, and certainly not machine-learning frameworks. Historically, these modeling capabilities have been provided by specialized Smart Building IoT platforms. However, some vendors—such as Delta Controls with their RED5 lineup—are beginning to blur this boundary and bring more advanced analytics capability directly into the BAS layer.
 
 > The ultimate goal is to use the current computer time, compare it to the modeled probability of the HVAC zone becoming occupied or unoccupied, and determine the next transition—including whether the zone will switch to OCC or UNOCC and the number of minutes until that change occurs—similar to the output shown below:
 
@@ -232,7 +231,7 @@ Next Transition: END in 975 mins at 2024-11-22 10:00:00+00:00 (UTC)
 
 Some modern BAS platforms ***could be capable*** of **parsing and ingesting CSV files**. Our `final_predicted_schedule.csv` leverages this capability; it is a static **Matrix Lookup Table** that a BAS platform can read. By comparing the current time to the table's structure, the system can instantly retrieve a **modeled predictive occupancy value** (0 or 1), which can then be used to control HVAC scheduling and optimal start algorithms.
 
-The "Winning model" determines the final schedule, but the output file itself is based on the **Probability Model**. This model converts the historical likelihood of occupancy for every 15-minute interval into a binary decision. This conversion uses a **50% confidence threshold** (set by the variable `prob_threshold=0.5`). This threshold can be easily adjusted within the `occupancy_model_binary.py` script (e.g., to `0.85`) if a more conservative (stricter) control strategy is required.
+The output file itself is based on the **Probability Model**. This model converts the historical likelihood of occupancy for every 15-minute interval into a binary decision. This conversion uses a **50% confidence threshold** (set by the variable `prob_threshold=0.5`). This threshold can be easily adjusted within the `occupancy_model_binary.py` script (e.g., to `0.85`) if a more conservative (stricter) control strategy is required.
 
   * **Rows (Index):** Time of day in decimal hours (e.g., `0.0` is Midnight, `14.5` is 2:30 PM).
   * **Columns (Header):** Day of the week, where `0` = Monday and `6` = Sunday.
@@ -251,9 +250,9 @@ hour,0,1,2,3,4,5,6
 
 This matrix functions as a lightweight lookup table for a live Building Automation System (BAS) or IoT if it can read and parse the CSV file. The **BAS controller then has to check rounded current time to the nearest 15-minute increment**. The value at that intersection (the 0 or 1) is the ***Predicted Occupancy State*** for that specific 15-minute slot. We can then focus purely on the Future Look-Ahead logic for optimal start algorithms. (This is also open for debate or other use cases too!)
 
-**Pseudocode:**
+### Example BAS Scripting Pseudocode for HVAC sequencing
 
-What is the probablitiy that the building will be occupied in 3 hours from now? Do we need to warm up or cool down the building??!
+> What is the probablitiy that the building will be occupied in 3 hours from now? Do we need to warm up or cool down the building??!
 
 ```lua
 TIME_OFFSET_HOURS = 3
