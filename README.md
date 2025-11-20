@@ -81,7 +81,7 @@ modules:
 
 ## Model Used
 
-This project uses simple, time-slot–based statistical baseline models that learn typical occupancy patterns directly from historical data. Rather than relying on machine-learning algorithms, the models use either the mean occupancy count or the historical probability of occupancy for each discrete interval (such as 15-minute slots in a 7-day weekly cycle) and convert these values into a binary occupied/unoccupied schedule based on a chosen `prob_threshold`. Because the approach is non-parametric and frequency-based, it remains highly explainable and robust to noisy sensor data while being lightweight enough to run on Building Automation Systems. From a statistical perspective, the method estimates the empirical distribution of occupancy over repeating weekly cycles, producing a stable schedule whenever the underlying time-series data is stationary.
+This project uses simple, time-slot–based statistical baseline models that learn typical occupancy patterns directly from historical data. Rather than relying on machine-learning algorithms, the models use either the mean occupancy count or the historical probability of occupancy for each discrete interval (such as 15-minute slots in a 7-day weekly cycle) and convert these values into a binary occupied/unoccupied schedule based on a chosen `prob_threshold`. Because the approach is non-parametric and frequency-based, it remains highly explainable and robust to noisy sensor data while being lightweight enough to run on Building Automation Systems. From a statistical perspective, the method estimates the empirical distribution of occupancy over repeating weekly cycles, producing a stable schedule whenever the underlying time-series data ***is stationary.***
 
 
 
@@ -222,7 +222,15 @@ This pipeline estimates that probability using historical patterns.  The exporte
 
 To predict occupancy on live building control systems, by nature operations technology (OT) like **Building Automation Systems (BAS) do not natively model data** or support complex analysis libraries like Python or machine learning frameworks. Historically, these data modeling processes have been handled by specialized Smart Building IoT platforms.
 
-However, many modern BAS platforms are capable of **parsing and ingesting CSV files**. Our `final_predicted_schedule.csv` leverages this capability; it is a static **Matrix Lookup Table** that a BAS platform can read. By comparing the current time to the table's structure, the system can instantly retrieve a **modeled predictive occupancy value** (0 or 1), which can then be used to control HVAC scheduling and optimal start algorithms.
+> The ultimate goal is to use the current computer time, compare it to the modeled probability of the HVAC zone becoming occupied or unoccupied, and determine the next transition—including whether the zone will switch to OCC or UNOCC and the number of minutes until that change occurs—similar to the output shown below:
+
+```text
+Reference time: 2024-11-21 17:45:00+00:00 (UTC)
+Current State: OCCUPIED
+Next Transition: END in 975 mins at 2024-11-22 10:00:00+00:00 (UTC)
+```
+
+Some modern BAS platforms ***could be capable*** of **parsing and ingesting CSV files**. Our `final_predicted_schedule.csv` leverages this capability; it is a static **Matrix Lookup Table** that a BAS platform can read. By comparing the current time to the table's structure, the system can instantly retrieve a **modeled predictive occupancy value** (0 or 1), which can then be used to control HVAC scheduling and optimal start algorithms.
 
 The "Winning model" determines the final schedule, but the output file itself is based on the **Probability Model**. This model converts the historical likelihood of occupancy for every 15-minute interval into a binary decision. This conversion uses a **50% confidence threshold** (set by the variable `prob_threshold=0.5`). This threshold can be easily adjusted within the `occupancy_model_binary.py` script (e.g., to `0.85`) if a more conservative (stricter) control strategy is required.
 
@@ -230,7 +238,7 @@ The "Winning model" determines the final schedule, but the output file itself is
   * **Columns (Header):** Day of the week, where `0` = Monday and `6` = Sunday.
   * **Values:** `1` for Occupied, `0` for Unoccupied.
 
-### Example data in CSV file
+### Example Matrix Lookup Table in CSV format
 
 ```csv
 hour,0,1,2,3,4,5,6
@@ -259,39 +267,7 @@ ELSE
 END IF
 ```
 
-In Python we do this in the `occupancy_model_binary.py` once as well for demo concept purposes. 
 
-```python
-# --- A. Live Dashboard Demo (Using Baseline) ---
-print("\n--- 1. LIVE DASHBOARD DEMO (Baseline) ---")
-
-# 1. Build the schedule from history
-pivot, step_minutes = build_baseline_model(df)
-schedule = predict_schedule(pivot, threshold=occ_threshold)
-
-# 2. Pick "Now" (The last row in your data)
-now = df["time"].iloc[-1] 
-
-# 3. Check status at "Now"
-state_str = "OCCUPIED" if get_predicted_state_at(now, schedule, step_minutes) == 1 else "UNOCCUPIED"
-print(f"Reference time: {now} (UTC)")
-print(f"Current State: {state_str}")
-
-# 4. Look into the future (Loop ahead until state changes)
-res = minutes_to_next_transition(now, schedule, step_minutes)
-if res:
-    mins, trans, ts = res
-    print(f"Next Transition: {trans.upper()} in {mins:.0f} mins at {ts} (UTC)")
-```
-
-The following logs demonstrate the live dashboard functionality, which could be continuously checked on a live system using a Python `while` loop if Python was available:
-
-```text
---- 1. LIVE DASHBOARD DEMO (Baseline) ---
-Reference time: 2024-11-21 17:45:00+00:00 (UTC)
-Current State: OCCUPIED
-Next Transition: END in 975 mins at 2024-11-22 10:00:00+00:00 (UTC)
-```
 
 </details>
 
