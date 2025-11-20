@@ -1,10 +1,12 @@
 # Predictive Occupancy Modeling
 
-> **What is the probability that a zone is occupied or unoccupied in the near term future?**
+> **What is the probability that an HVAC zone is occupied or unoccupied in the near term future?**
 
 
 This repository provides a framework for evaluating and modeling **occupancy patterns in Building Automation Systems (BAS)** using historical occupancy-sensor time series. The purpose is to make it easy to ingest BAS occupancy data, assess whether the time series is sufficiently stationary using statistics, build lightweight baseline models, evaluate their performance, and ultimately export a predicted-schedule lookup table that a BAS can consume. In short, this repo is designed to **test BAS occupancy sensor data and prototype concepts for future BAS integration.**
 
+
+> The repository contains two datasets: one with occupancy data from people-counting sensors and another with hourly weather data. These datasets are unrelated and are used for stationary-data tests for learning purposes, demonstrating that datasets like weather— which are naturally non-stationary — cannot be used in the modeling process.
 
 ## Why stationarity matters
 
