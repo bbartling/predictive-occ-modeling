@@ -1,5 +1,7 @@
 # Predictive Occupancy Modeling
 
+![Insert Snip Here](https://github.com/bbartling/n4-hvac-optimization-blocks/blob/develop/BAS_Of_The_Future.png)
+
 > **What is the probability that an HVAC zone is occupied or unoccupied in the near term future?**
 
 
