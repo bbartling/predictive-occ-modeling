@@ -1,0 +1,43 @@
+## Predictive Occupancy Modeling
+
+# This file defines the build configuration for the predictive occupancy
+# modeling pipeline. It follows PEP 621 and uses a modern `pyproject.toml`
+# configuration with setuptools.  The package exposes a command‑line
+# script named ``predictive-occ-modeling`` that dispatches to the
+# ``main`` function in ``src/main.py``.  All dependencies required for
+# running the models and generating plots are declared in the
+# ``dependencies`` section.
+
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "predictive-occupancy-modeling"
+version = "0.1.0"
+description = "Predictive occupancy modelling pipeline"
+readme = "README.md"
+requires-python = ">=3.9"
+authors = [
+  { name = "Ben Bartling" },
+]
+license = { file = "LICENSE" }
+dependencies = [
+  "pandas",
+  "numpy",
+  "matplotlib",
+  "seaborn",
+  "statsmodels",
+]
+
+[project.scripts]
+predictive-occ-modeling = "src.main:main"
+
+[tool.setuptools.packages.find]
+# Use an explicit include to treat ``src`` as a package.  The
+# ``where`` parameter tells setuptools to look for packages in the
+# current directory and the ``include`` list restricts discovery to
+# the ``src`` package.  This avoids accidentally packaging the
+# notebooks, data or other top‑level directories.
+where = ["."]
+include = ["src"]

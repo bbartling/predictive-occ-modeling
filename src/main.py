@@ -66,13 +66,55 @@ def run_pipeline(
     schedule_path: str,
     deadband: float = 1.0,
     prob_threshold: float = 0.5,
+    time_col: str = "time",
+    occ_col: str = "occ",
+    tz: str = "UTC",
 ) -> None:
-    """Execute the predictive occupancy pipeline on a given dataset."""
+    """Execute the predictive occupancy pipeline on a given dataset.
+
+    This function orchestrates the end‑to‑end modelling process.  It
+    loads the dataset, tests for stationarity, cleans the occupancy
+    counts, generates plots, trains and evaluates baseline models and
+    exports a final schedule.  Parameters controlling the names of
+    columns and the timezone allow it to operate on a wide variety
+    of CSV files.
+
+    Parameters
+    ----------
+    data_path : str
+        Path to the CSV file containing the raw time‑series data.
+    plots_dir : str
+        Directory where figures will be saved.  It will be created
+        if it does not already exist.
+    schedule_path : str
+        Path to write the final BAS schedule (CSV format).
+    deadband : float, default 1.0
+        Threshold applied during cleaning.  Counts less than or
+        equal to this value are treated as unoccupied.
+    prob_threshold : float, default 0.5
+        Decision threshold used when converting occupancy
+        probabilities into binary values for the exported schedule.
+    time_col : str, default "time"
+        Name of the timestamp column in the input CSV.
+    occ_col : str, default "occ"
+        Name of the occupancy count column in the input CSV.
+    tz : str, default "UTC"
+        Timezone used to localise the timestamps.  Only relevant
+        when ``parse_dates`` is True in :func:`load_occupancy_data`.
+    """
     # ------------------------------------------------------------------
     # 1. Load data
     print("Loading data from:", data_path)
-    df = load_occupancy_data(data_path, time_col="time", occ_col="occ", parse_dates=True, tz="UTC")
+    df = load_occupancy_data(
+        data_path,
+        time_col=time_col,
+        occ_col=occ_col,
+        parse_dates=True,
+        tz=tz,
+        rename_columns=True,
+    )
 
+    # ------------------------------------------------------------------
     # ------------------------------------------------------------------
     # 2. Stationarity tests on raw occupancy counts
     print("\n---- STATIONARITY TESTS ----")
@@ -84,11 +126,17 @@ def run_pipeline(
     if adf_stat and kpss_stat:
         print("The occupancy series appears to be stationary based on both tests.")
     else:
-        print("Warning: The occupancy series may not be strictly stationary.\n"
-              "Baseline models will still be trained, but consider differencing or detrending for more advanced models.")
+        print(
+            "Warning: The occupancy series may not be strictly stationary.\n"
+            "Baseline models will still be trained, but consider differencing or detrending for more advanced models."
+        )
 
     # ------------------------------------------------------------------
     # 3. Cleaning
+    # The ``clean_occupancy_counts`` function works on the canonical
+    # ``occ`` column created by ``load_occupancy_data``.  If you set
+    # ``rename_columns`` to False then you must pass the original
+    # occupancy column name here.
     df_clean = clean_occupancy_counts(df, occ_col="occ", deadband=deadband, make_binary=True)
     df_clean["hour_int"] = df_clean["time"].dt.hour
 
@@ -169,48 +217,124 @@ def run_pipeline(
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Predictive occupancy modelling pipeline.")
+    parser = argparse.ArgumentParser(
+        description=(
+            "Predictive occupancy modelling pipeline.  This tool loads an "
+            "occupancy time‑series, tests for stationarity, cleans and "
+            "visualises the data, trains baseline models and exports a "
+            "schedule suitable for Building Automation Systems."
+        )
+    )
     parser.add_argument(
         "--data",
         type=str,
         default=os.path.join("data", "occupancy_sample.csv"),
-        help="Path to the input CSV containing occupancy data",
+        help=(
+            "Path to the input CSV containing occupancy data.  This argument "
+            "can be overridden via a configuration file."
+        ),
     )
     parser.add_argument(
         "--plots_dir",
         type=str,
         default="plots",
-        help="Directory to save generated plots",
+        help="Directory to save generated plots."
     )
     parser.add_argument(
         "--schedule_path",
         type=str,
         default=os.path.join("data", "final_schedule.csv"),
-        help="Path to save the final BAS schedule CSV",
+        help="Path to save the final BAS schedule CSV."
     )
     parser.add_argument(
         "--deadband",
         type=float,
         default=1.0,
-        help="Deadband threshold for cleaning occupancy counts",
+        help=(
+            "Deadband threshold for cleaning occupancy counts.  Counts less "
+            "than or equal to this value are treated as unoccupied."
+        ),
     )
     parser.add_argument(
         "--prob_threshold",
         type=float,
         default=0.5,
-        help="Probability threshold for converting probabilities into binary decisions",
+        help=(
+            "Probability threshold for converting probabilities into binary decisions."
+        ),
+    )
+    parser.add_argument(
+        "--time_col",
+        type=str,
+        default="time",
+        help=(
+            "Name of the timestamp column in the input CSV.  This is only "
+            "used if no configuration file is supplied."
+        ),
+    )
+    parser.add_argument(
+        "--occ_col",
+        type=str,
+        default="occ",
+        help=(
+            "Name of the occupancy column in the input CSV.  This is only "
+            "used if no configuration file is supplied."
+        ),
+    )
+    parser.add_argument(
+        "--tz",
+        type=str,
+        default="UTC",
+        help="Timezone for localising timestamps (e.g. 'America/Chicago').",
+    )
+    parser.add_argument(
+        "--config",
+        type=str,
+        default=None,
+        help=(
+            "Optional path to a JSON configuration file.  Values in the "
+            "configuration will override command‑line defaults for "
+            "data_path, time_col, occ_col, tz, deadband, prob_threshold, "
+            "plots_dir and schedule_path."
+        ),
     )
     return parser.parse_args()
 
 
 def main():
     args = parse_args()
+    # Load configuration file if specified.  Values in the config
+    # override the corresponding command‑line arguments.  Missing
+    # keys are ignored.  This allows a JSON document to serve as
+    # a lightweight dataset descriptor for bespoke CSV files.
+    cfg = {}
+    if args.config:
+        from .config import load_config
+        cfg = load_config(args.config)
+        if cfg:
+            print(f"Loaded configuration from {args.config}")
+        else:
+            print(f"Warning: failed to load configuration from {args.config}, falling back to defaults")
+
+    # Determine effective parameters, falling back to CLI defaults
+    data_path = cfg.get("data_path", args.data)
+    plots_dir = cfg.get("plots_dir", args.plots_dir)
+    schedule_path = cfg.get("schedule_path", args.schedule_path)
+    deadband = cfg.get("deadband", args.deadband)
+    prob_threshold = cfg.get("prob_threshold", args.prob_threshold)
+    time_col = cfg.get("time_col", args.time_col)
+    occ_col = cfg.get("occ_col", args.occ_col)
+    tz = cfg.get("tz", args.tz)
+
     run_pipeline(
-        data_path=args.data,
-        plots_dir=args.plots_dir,
-        schedule_path=args.schedule_path,
-        deadband=args.deadband,
-        prob_threshold=args.prob_threshold,
+        data_path=data_path,
+        plots_dir=plots_dir,
+        schedule_path=schedule_path,
+        deadband=deadband,
+        prob_threshold=prob_threshold,
+        time_col=time_col,
+        occ_col=occ_col,
+        tz=tz,
     )
 
 

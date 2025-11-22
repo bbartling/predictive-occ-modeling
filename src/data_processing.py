@@ -26,8 +26,19 @@ def load_occupancy_data(
     occ_col: str = "occ",
     parse_dates: bool = True,
     tz: Optional[str] = "UTC",
+    rename_columns: bool = True,
 ) -> pd.DataFrame:
     """Load a CSV file containing occupancy measurements.
+
+    This helper reads a CSV file and returns a tidy DataFrame with
+    standardised column names and a handful of derived features.  It
+    supports datasets where the timestamp and occupancy columns are
+    named differently by allowing callers to pass ``time_col`` and
+    ``occ_col``.  When ``rename_columns`` is true (the default) the
+    timestamp column will be renamed to ``"time"`` and the occupancy
+    column renamed to ``"occ"``.  All downstream functions in this
+    package assume these canonical names, so enabling renaming avoids
+    the need to pass column names repeatedly.
 
     Parameters
     ----------
@@ -35,25 +46,33 @@ def load_occupancy_data(
         Path to a CSV file with at least a timestamp and an occupancy
         column.
     time_col : str, default ``"time"``
-        Name of the column containing timestamps.  Times are parsed
-        using :func:`pandas.to_datetime` and optionally localized to
-        ``tz``.
+        Name of the column containing timestamps in the input CSV.
     occ_col : str, default ``"occ"``
-        Name of the column containing the numeric occupancy counts.
+        Name of the column containing the numeric occupancy counts in
+        the input CSV.
     parse_dates : bool, default ``True``
         If ``True`` then the timestamp column will be converted to
         :class:`pandas.DatetimeIndex`.  If ``False`` the timestamps
         remain strings.
     tz : str or ``None``, default ``"UTC"``
-        If provided, localize naive timestamps to the specified
-        timezone.  If ``None``, timestamps remain naive.
+        If provided, localise naive timestamps to the specified
+        timezone.  If ``None``, timestamps remain naive.  This
+        argument is ignored if ``parse_dates`` is ``False``.
+    rename_columns : bool, default ``True``
+        If ``True`` the columns specified by ``time_col`` and
+        ``occ_col`` will be renamed to ``"time"`` and ``"occ"``
+        respectively in the returned DataFrame.  Downstream functions
+        rely on these canonical names.  If ``False`` the original
+        names are preserved and callers must pass the column names
+        explicitly to other functions.
 
     Returns
     -------
     :class:`pandas.DataFrame`
         A dataframe sorted by timestamp with additional columns
         ``dow`` (day‑of‑week) and ``minute_of_day`` (minutes since
-        midnight).
+        midnight).  When ``rename_columns`` is ``True`` the DataFrame
+        will contain canonical column names ``"time"`` and ``"occ"``.
     """
     df = pd.read_csv(path)
     if parse_dates:
@@ -67,11 +86,24 @@ def load_occupancy_data(
             # Convert from UTC to the requested timezone.  If tz="UTC"
             # this is a no‑op.
             df[time_col] = df[time_col].dt.tz_convert(tz)
-    df = df.sort_values(time_col).reset_index(drop=True)
-
-    # Derive helper columns for grouping and visualization
-    df["dow"] = df[time_col].dt.dayofweek
-    df["minute_of_day"] = df[time_col].dt.hour * 60 + df[time_col].dt.minute
+    # Rename columns to canonical names for internal use
+    if rename_columns:
+        if time_col != "time":
+            df.rename(columns={time_col: "time"}, inplace=True)
+        if occ_col != "occ":
+            df.rename(columns={occ_col: "occ"}, inplace=True)
+        tcol = "time"
+        ocol = "occ"
+    else:
+        tcol = time_col
+        ocol = occ_col
+    # Sort by time and reset the index
+    df = df.sort_values(tcol).reset_index(drop=True)
+    # Derive helper columns for grouping and visualisation.  We always
+    # derive these on the canonical column names so that downstream
+    # functions can rely on them.
+    df["dow"] = df[tcol].dt.dayofweek
+    df["minute_of_day"] = df[tcol].dt.hour * 60 + df[tcol].dt.minute
     return df
 
 
