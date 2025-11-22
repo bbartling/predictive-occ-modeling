@@ -34,6 +34,7 @@ repetitive weekly occupancy patterns, and in such cases the
 probability model is robust to sensor noise because it uses the
 historical frequency of occupancy rather than raw counts.
 
+
 ## Repository structure
 
 ```
@@ -41,12 +42,15 @@ predictive-occ-modeling-develop/
 ├── data/            # Example datasets (occupancy and weather)
 ├── notebooks/       # Jupyter notebooks for exploratory analysis
 ├── plots/           # Generated figures (created at runtime)
-├── src/             # Python package containing the modelling code
+├── src/             # Core Python source code for the pipeline
 └── README.md        # This file
 ```
 
-### Data
+### Notebooks
 
+The [notebooks](https://github.com/bbartling/predictive-occ-modeling/tree/develop/notebooks) directory contains several example Jupyter notebooks that demonstrate key concepts such as stationarity testing, baseline modeling, and lag analysis. Some of the datasets used in these notebooks are Kaggle-sourced CSV files related to occupancy and thermal comfort. The notebooks incorporate both the occupancy dataset and a weather dataset to highlight the differences between stationary and non-stationary signals.
+
+### Data
 
 The `data` folder includes a sample dataset (`occupancy_sample.csv`) containing 15-minute people-count measurements from a commercial building. The larger `all_occupancy_data.csv` file represents the full raw dataset, aggregated from three separate people-counter devices inside the facility. Because this is real field data, it includes occasional counting errors—most noticeably negative values in the evenings when the counters drift out of sync.
 
@@ -58,13 +62,7 @@ If you wish to apply the pipeline to your own data, format your CSV
 with at least a timestamp column and a numeric occupancy column.  The
 column names can be customised via command‑line arguments.
 
-### Notebooks
 
-The `notebooks` folder contains an example Jupyter notebook that
-demonstrates concepts such as stationarity tests, baseline models and
-lag analysis.  It uses both the occupancy dataset and a weather
-dataset to highlight differences between stationary and non‑stationary
-signals.
 
 ### Source code
 
