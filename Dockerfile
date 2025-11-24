@@ -1,13 +1,12 @@
-# Dockerfile for Predictive Occupancy Modeling
+# Dockerfile for Predictive Occupancy Modeling API
 #
-# This image installs the package in editable mode along with its
-# dependencies.  It also installs Jupyter Lab for interactive
-# exploration of the notebooks.  When run without arguments the
-# container will execute the ``predictive-occ-modeling`` CLI and
-# display help.  To start a Jupyter server override the default
-# command as shown in the repository README.
+# This image installs the project as a Python package along with its
+# dependencies and exposes a FastAPI server for training and
+# querying occupancy models.  Jupyter and plotting utilities have
+# been removed to keep the image lightweight.  The container
+# automatically runs the API under uvicorn on port 8000.
 
-FROM python:latest-slim
+FROM python:3.12-slim
 
 # Install system packages required for building some Python wheels
 RUN apt-get update -qq && \
@@ -21,14 +20,15 @@ WORKDIR /app
 # Copy the entire repository into the container
 COPY . /app
 
-# Upgrade pip and install the project in editable mode
+# Upgrade pip and install the project in editable mode.  FastAPI and
+# uvicorn are installed via the project's dependencies declared in
+# pyproject.toml.
 RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -e . 
+    pip install --no-cache-dir -e .
 
-# Expose the default Jupyter port
-EXPOSE 8888
+# Expose the API port
+EXPOSE 8000
 
-# The default entrypoint prints CLI help.  Override CMD at runtime to
-# run alternative commands (e.g. ``jupyter lab``).
-ENTRYPOINT ["predictive-occ-modeling"]
-CMD ["--help"]
+# Default command: launch the FastAPI server via uvicorn.  Uvicorn
+# will read the app object from src.api and listen on all interfaces.
+CMD ["uvicorn", "src.api:app", "--host", "0.0.0.0", "--port", "8000"]

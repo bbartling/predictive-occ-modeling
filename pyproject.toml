@@ -9,7 +9,7 @@
 # ``dependencies`` section.
 
 [build-system]
-requires = ["setuptools>=61", "wheel"]
+requires = ["setuptools", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -25,13 +25,15 @@ license = { file = "LICENSE" }
 dependencies = [
   "pandas",
   "numpy",
-  "matplotlib",
-  "seaborn",
   "statsmodels",
+  "fastapi",
+  "uvicorn[standard]",
 ]
 
-[project.scripts]
-predictive-occ-modeling = "src.main:main"
+#[project.scripts]
+# The command‑line interface has been removed in favour of a REST API.
+# To run the API, use ``uvicorn src.api:app`` or run the Docker
+# container provided in this repository.
 
 [tool.setuptools.packages.find]
 # Use an explicit include to treat ``src`` as a package.  The

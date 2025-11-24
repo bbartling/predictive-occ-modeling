@@ -18,19 +18,13 @@ from .data_processing import load_occupancy_data, clean_occupancy_counts
 from .stationarity import adf_stationary, kpss_stationary
 from .baseline_models import (
     infer_step_minutes,
-    build_mean_pivot,
     build_probability_table,
-    evaluate_baseline_models,
     export_probability_schedule,
 )
-from .plotting import (
-    plot_time_series,
-    plot_histogram,
-    plot_average_by_hour,
-    plot_weekday_vs_weekend,
-    plot_probability_heatmap,
-    plot_raw_vs_clean,
-)
+
+# Note: plotting utilities and mean-based baselines have been removed.
+# They are no longer imported or re-exported from this package.  The
+# probability-based baseline is now the sole modelling approach.
 
 __all__ = [
     "load_occupancy_data",
@@ -38,14 +32,6 @@ __all__ = [
     "adf_stationary",
     "kpss_stationary",
     "infer_step_minutes",
-    "build_mean_pivot",
     "build_probability_table",
-    "evaluate_baseline_models",
     "export_probability_schedule",
-    "plot_time_series",
-    "plot_histogram",
-    "plot_average_by_hour",
-    "plot_weekday_vs_weekend",
-    "plot_probability_heatmap",
-    "plot_raw_vs_clean",
 ]

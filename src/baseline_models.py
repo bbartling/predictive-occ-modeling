@@ -1,79 +1,302 @@
 """
-Baseline Models for Occupancy Prediction (Probability-Only)
-===========================================================
+Probability‑Based Baseline for Occupancy Prediction
+==================================================
 
-This module implements a single, explainable, **probability-based**
-baseline model for predicting binary occupancy from historical
-time-series data.
+This module implements a single, explainable baseline model for
+predicting binary occupancy states from historical time‑series data.
+The approach is intentionally lightweight so that it can be run on
+resource‑constrained Building Automation Systems (BAS) after the
+training phase.  It uses the **empirical probability** of
+occupancy in each time slot, rather than the magnitude of the
+counts, making it robust to sensor noise and simple enough to
+execute on edge devices.
 
-The method computes the empirical probability of occupancy for each
-discrete time slot (e.g., 15-minute intervals) across multiple weeks
-of historical data. These probabilities are thresholded using
-``prob_threshold`` to generate a final occupied/unoccupied schedule.
+The general procedure is:
 
-This approach is:
+1. **Clean the raw counts** to obtain a binary indicator (occupied
+   if the count exceeds a configurable deadband, otherwise
+   unoccupied).
+2. **Group by day of week and time slot** to calculate the
+   historical probability of occupancy (i.e. the fraction of times
+   the space was occupied in that slot).
+3. **Threshold the probabilities** to produce a final binary
+   schedule.  If the probability in a slot is greater than or equal
+   to ``prob_threshold`` then the slot is marked as occupied.
 
-- **non-parametric and fully explainable**
-- **robust to noisy sensors**
-- **lightweight enough for edge/BAS execution**
+Because this model is non‑parametric and frequency‑based it remains
+highly explainable and can produce reliable schedules whenever the
+underlying time‑series data are stationary.
 
-All former count-based mean models have been removed in favor of the
-probability-only baseline.
+The functions below support building the probability table and
+exporting it as a schedule matrix.  Additional helper functions for
+mean‑based baselines have been removed or deprecated as this
+project now relies solely on the probability model.
 """
 
-import pandas as pd
+from __future__ import annotations
+
+from typing import Tuple, Optional
 import numpy as np
+import pandas as pd
 
 
-def build_probability_table(df: pd.DataFrame) -> pd.DataFrame:
+def infer_step_minutes(df: pd.DataFrame, time_col: str = "time") -> int:
+    """Infer the most common sampling interval in minutes.
+
+    Given a series of timestamps, compute the difference between
+    consecutive samples and return the mode of the differences in
+    minutes.  If no differences are found, a default of 15 minutes
+    is returned.
     """
-    Compute the empirical probability of occupancy for each
-    (day_of_week, minute_of_day) combination.
+    diffs = df[time_col].sort_values().diff().dropna()
+    if diffs.empty:
+        return 15
+    step = int(diffs.mode().iloc[0].total_seconds() // 60)
+    return max(step, 1)
+
+
+def build_mean_pivot(
+    df: pd.DataFrame,
+    occ_col: str = "occ",
+    time_col: str = "time",
+    step_minutes: Optional[int] = None,
+) -> Tuple[pd.DataFrame, int]:
+    """Construct a pivot table of mean occupancy by day‑of‑week and time slot.
 
     Parameters
     ----------
-    df : pandas.DataFrame
-        Must contain:
-        - 'dow' : integer day of week (0=Monday)
-        - 'minute_of_day' : integer minute (0–1439)
-        - 'is_occupied_int' : 0 or 1 occupancy observation
+    df : :class:`pandas.DataFrame`
+        Dataframe with at least columns ``occ_col``, ``time_col``, ``dow`` and
+        ``minute_of_day``.
+    occ_col : str, default ``"occ"``
+        Name of the occupancy count column.
+    time_col : str, default ``"time"``
+        Name of the timestamp column.
+    step_minutes : int or ``None``
+        Sampling interval in minutes.  If ``None`` the interval will be
+        inferred from the data via :func:`infer_step_minutes`.
 
     Returns
     -------
-    pandas.DataFrame
-        With columns ['dow', 'minute_of_day', 'probability'] where
-        each row represents the historical probability of being
-        occupied at that specific weekly time slot.
+    pivot : :class:`pandas.DataFrame`
+        Pivot table where rows are slots (minutes past midnight) and
+        columns are day‑of‑week (0=Monday).  Values are mean occupancy.
+    step_minutes : int
+        The sampling interval used to build the pivot table.
     """
-    grouped = df.groupby(["dow", "minute_of_day"])["is_occupied_int"].mean()
-    result = grouped.reset_index()
-    result = result.rename(columns={"is_occupied_int": "probability"})
-    return result
+    # This function is deprecated and no longer implemented.  The project
+    # relies exclusively on the probability‑based baseline, which does
+    # not use mean counts.  Calling this function will raise an
+    # exception to alert callers that it has been removed.
+    raise NotImplementedError(
+        "build_mean_pivot has been removed. Use the probability model instead."
+    )
+
+
+def build_probability_table(
+    df: pd.DataFrame,
+    occ_threshold: float,
+    step_minutes: int,
+    occ_col: str = "occ",
+) -> pd.DataFrame:
+    """Compute the probability of occupancy for each slot.
+
+    This function first derives a binary label ``y`` indicating whether
+    the raw count exceeds ``occ_threshold``.  It then groups by
+    day‑of‑week and time slot to calculate the mean of ``y`` (which is
+    equivalent to the probability of occupancy).
+
+    Parameters
+    ----------
+    df : :class:`pandas.DataFrame`
+        Dataframe containing occupancy counts and derived fields
+        ``dow`` and ``minute_of_day``.
+    occ_threshold : float
+        Counts less than or equal to this threshold are treated as
+        unoccupied (0), otherwise occupied (1).
+    step_minutes : int
+        Sampling interval used to bucket the data into slots.
+    occ_col : str, default ``"occ"``
+        Name of the occupancy count column.
+
+    Returns
+    -------
+    :class:`pandas.DataFrame`
+        Table with columns ``dow``, ``slot`` and ``p_occ`` representing
+        the probability of being occupied for each day and slot.
+    """
+    data = df.copy()
+    data["slot"] = (data["minute_of_day"] // step_minutes) * step_minutes
+    data["y"] = (data[occ_col] > occ_threshold).astype(int)
+    prob_table = (
+        data.groupby(["dow", "slot"])["y"]
+        .mean()
+        .reset_index()
+        .rename(columns={"y": "p_occ"})
+    )
+    return prob_table
+
+
+def evaluate_baseline_models(
+    df_test: pd.DataFrame,
+    mean_table: pd.DataFrame,
+    prob_table: pd.DataFrame,
+    occ_threshold: float,
+    prob_threshold: float = 0.5,
+) -> pd.DataFrame:
+    """Compare the accuracy of the mean and probability baselines.
+
+    For each record in ``df_test`` compute the predicted occupancy
+    using both baselines, then compare those predictions with the
+    ground truth label ``y``.  Accuracy is defined as the fraction of
+    correct predictions.
+
+    Parameters
+    ----------
+    df_test : :class:`pandas.DataFrame`
+        Test dataset with columns ``dow``, ``slot`` and binary label
+        ``y`` indicating actual occupancy.
+    mean_table : :class:`pandas.DataFrame`
+        Table with columns ``dow``, ``slot`` and ``mean_occ`` produced
+        by :func:`build_mean_pivot` (flattened into long format).
+    prob_table : :class:`pandas.DataFrame`
+        Table with columns ``dow``, ``slot`` and ``p_occ`` produced by
+        :func:`build_probability_table`.
+    occ_threshold : float
+        Deadband threshold used to convert mean counts into binary
+        predictions.
+    prob_threshold : float, default ``0.5``
+        Decision threshold applied to probabilities to obtain binary
+        predictions.
+
+    Returns
+    -------
+    :class:`pandas.DataFrame`
+        A table with one row per model, containing the accuracy.
+    """
+    # This function is deprecated and no longer implemented.  The
+    # project no longer compares mean and probability baselines,
+    # because mean‑based baselines have been removed.  Calling this
+    # function will raise an exception to alert callers that it has
+    # been removed.
+    raise NotImplementedError(
+        "evaluate_baseline_models has been removed. Use the probability model instead."
+    )
+
+
+def flatten_mean_pivot(
+    pivot: pd.DataFrame,
+) -> pd.DataFrame:
+    """Convert a mean pivot table into long form for merging.
+
+    The :func:`build_mean_pivot` function returns a pivot table with
+    rows labelled by slot and columns labelled by day‑of‑week.  This
+    helper unpivots the table into a long format with columns
+    ``dow``, ``slot`` and ``mean_occ`` so that it can be merged with
+    other tables for evaluation.
+
+    Parameters
+    ----------
+    pivot : :class:`pandas.DataFrame`
+        Pivot table of mean occupancy counts.
+
+    Returns
+    -------
+    :class:`pandas.DataFrame`
+        Long format table with columns ``dow``, ``slot`` and
+        ``mean_occ``.
+    """
+    # This function is deprecated and no longer implemented.  The project
+    # uses only the probability‑based baseline, so flattening a mean
+    # pivot is not necessary.  Calling this function will raise an
+    # exception to alert callers that it has been removed.
+    raise NotImplementedError(
+        "flatten_mean_pivot has been removed. Use the probability model instead."
+    )
 
 
 def export_probability_schedule(
-    df_prob: pd.DataFrame, *, prob_threshold: float = 0.5
+    prob_table: pd.DataFrame,
+    output_path: str | None,
+    prob_threshold: float = 0.5,
+    step_minutes: int = 15,
 ) -> pd.DataFrame:
-    """
-    Convert the probability table into a final binary occupancy schedule
-    by thresholding.
+    """Create a matrix lookup table and write it to a CSV file.
+
+    The probability table contains rows indexed by ``dow`` and
+    ``slot``.  The returned matrix has rows representing the hour of
+    day (in fractional hours) and columns representing day of week.
+    Each value is 0 or 1 depending on whether the probability of
+    occupancy exceeds ``prob_threshold``.  The output is suitable for
+    ingestion by a Building Automation System (BAS).
 
     Parameters
     ----------
-    df_prob : pandas.DataFrame
-        Output of build_probability_table(). Must contain:
-        - 'dow'
-        - 'minute_of_day'
-        - 'probability'
-
-    prob_threshold : float, optional
-        Values >= threshold map to 1 (occupied); otherwise 0.
+    prob_table : :class:`pandas.DataFrame`
+        Table with columns ``dow``, ``slot`` and ``p_occ``.
+    output_path : str
+        Path to write the resulting CSV file.
+    prob_threshold : float, default ``0.5``
+        Threshold used to convert probabilities into binary decisions.
+    step_minutes : int, default ``15``
+        The slot length in minutes.  This is used to convert ``slot``
+        values into fractional hour indices.
 
     Returns
     -------
-    pandas.DataFrame
-        With columns ['dow', 'minute_of_day', 'schedule_occ'].
+    :class:`pandas.DataFrame`
+        The pivoted decision matrix with rows labelled by fractional
+        hours and columns by day of week.
     """
-    df = df_prob.copy()
-    df["schedule_occ"] = (df["probability"] >= prob_threshold).astype(int)
-    return df
+    tbl = prob_table.copy()
+    tbl["decision"] = (tbl["p_occ"] > prob_threshold).astype(int)
+    tbl["hour"] = tbl["slot"] / 60.0
+    matrix = (
+        tbl
+        .pivot(index="hour", columns="dow", values="decision")
+        .fillna(0)
+        .astype(int)
+    )
+    # Write to CSV only if an output path has been provided.  This
+    # allows callers to obtain the matrix without persisting it to
+    # disk (e.g. when serving via an API).
+    if output_path:
+        matrix.to_csv(output_path)
+    return matrix
+
+
+def compare_to_std(
+    pivot: pd.DataFrame,
+    std: pd.DataFrame,
+) -> float:
+    """Compute the RMSE between a model profile and a standard week profile.
+
+    A "standard week" profile summarises a typical occupancy pattern
+    for each time slot and is provided in ``std_week.csv``.  This
+    function interpolates the standard profile to match the number of
+    slots in the model pivot table and then computes the root mean
+    squared error (RMSE) between the two profiles.
+
+    Parameters
+    ----------
+    pivot : :class:`pandas.DataFrame`
+        A pivot table of mean occupancy counts with slot indices.
+    std : :class:`pandas.DataFrame`
+        Dataframe with a column ``median_occ`` representing the
+        standard week occupancy profile.
+
+    Returns
+    -------
+    float
+        Root mean squared error between the model profile and the
+        interpolated standard profile.
+    """
+    model_profile = pivot.mean(axis=1)
+    # Interpolate the standard profile over the model's slot range
+    std_interp = np.interp(
+        model_profile.index,
+        np.linspace(0, 24 * 60, len(std)),
+        std["median_occ"],
+    )
+    rmse = np.sqrt(((model_profile.values - std_interp) ** 2).mean())
+    return float(rmse)
