@@ -2,29 +2,32 @@
 Predictive Occupancy Modeling
 =============================
 
-This package contains reusable modules for working with time‑series
-occupancy data.  The goal of the project is to make it easy to load
-arbitrary datasets, check if they exhibit stationarity, build simple
-baseline models, evaluate those models and generate schedule lookup
-tables that can be consumed by Building Automation Systems (BAS).
+This top‑level ``src`` package serves as a thin wrapper around the
+``predictive_occ`` library.  Historically, the modelling code lived
+directly in this package, but it has been refactored into a proper
+subpackage to support cleaner imports and reuse across notebooks,
+scripts and API layers.
 
-The functions defined in the submodules are designed to be generic and
-should work on any dataset that includes a time stamp column and a
-numeric occupancy measurement.  See the top‑level ``README.md`` for
-details on how to use these utilities.
+For backward compatibility the most commonly used functions remain
+available from this namespace:
+
+* ``load_occupancy_data`` and ``clean_occupancy_counts`` for loading and
+  preprocessing CSV data.
+* ``adf_stationary`` and ``kpss_stationary`` for stationarity tests.
+* ``infer_step_minutes``, ``build_probability_table`` and
+  ``export_probability_schedule`` for building a probability‑based model.
+
+New code should import these functions from ``predictive_occ`` rather
+than from ``src`` directly.
 """
 
-from .data_processing import load_occupancy_data, clean_occupancy_counts
-from .stationarity import adf_stationary, kpss_stationary
+from .data_processing import load_occupancy_data, clean_occupancy_counts  # type: ignore[F401]
+from .stationarity import adf_stationary, kpss_stationary  # type: ignore[F401]
 from .baseline_models import (
     infer_step_minutes,
     build_probability_table,
     export_probability_schedule,
-)
-
-# Note: plotting utilities and mean-based baselines have been removed.
-# They are no longer imported or re-exported from this package.  The
-# probability-based baseline is now the sole modelling approach.
+)  # type: ignore[F401]
 
 __all__ = [
     "load_occupancy_data",

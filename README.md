@@ -1,249 +1,63 @@
-# Predictive Occupancy Modeling API
+# Predictive Occupancy Modeling
 
-## Overview
+![Insert Snip Here](https://github.com/bbartling/predictive-occ-modeling/blob/develop/BAS_Of_The_Future.png)
 
-This repository provides a lightweight framework for training and
-serving **probability‑based occupancy models** for buildings.  The
-original project included notebooks for exploratory analysis and a
-command‑line interface; this new version packages the core logic
-behind a small REST API so that an IoT or edge device can expose
-predictions over HTTP.  You can train a model from a CSV file,
-retrieve the current occupancy state and next transition, and fetch
-the full weekly schedule as a matrix—all via simple API calls.
+> **What is the probability that an HVAC zone is occupied or unoccupied in the near term future?**
 
-The underlying model is intentionally simple and explainable: for
-each discrete time slot in a week (for example every 15 minutes) it
-computes the **empirical probability of occupancy** from historical
-data and then thresholds those probabilities to obtain a binary
-occupied/unoccupied schedule.  Because the method uses frequency
-rather than magnitude, it is robust to noisy sensor data and can
-deliver reliable predictions whenever the underlying time series is
-stationary【502360774470064†L199-L212】【502360774470064†L243-L253】.  The
-approach is non‑parametric and runs comfortably on small edge
-devices, making it suitable for deployment inside a BAS controller.
 
-The notebooks provided in the `notebooks/` directory illustrate
-stationarity testing, feature engineering and baseline modelling on a
-variety of occupancy datasets.  Those exploratory analyses remain
-unchanged and are still valuable for understanding your data.  This
-API focuses purely on productionising the probability model.
+This repository provides a framework for evaluating and modeling **occupancy patterns in Building Automation Systems (BAS)** using historical occupancy-sensor time series. The purpose is to make it easy to ingest BAS occupancy data, assess whether the time series is sufficiently stationary using statistics, build lightweight baseline models, evaluate their performance, and ultimately export a predicted-schedule lookup table that a BAS can consume. In short, this repo is designed to **test BAS occupancy sensor data and prototype concepts for future BAS integration.**
 
-## Installation
 
-### Running with Docker
+> The repository contains two datasets: one with occupancy data from people-counting sensors and another with hourly weather data. These datasets are unrelated and are used for stationary-data tests for learning purposes, demonstrating that datasets like weather— which are naturally non-stationary — cannot be used in the modeling process.
 
-The recommended way to run the API is inside a container.  A
-`Dockerfile` is provided at the project root.  Build the image and
-start the server as follows:
+## Why stationarity matters
 
-```bash
-docker build -t predictive-occ-modeling .
-docker run --rm -p 8000:8000 -v $(pwd)/data:/app/data predictive-occ-modeling
-```
+A stationary time series has a constant mean, variance and
+autocorrelation over time.  Many forecasting
+techniques assume that the data are stationary; if they are not,
+models can produce unreliable results.  To assess stationarity we
+employ two complementary tests:
 
-The server will listen on port 8000.  Mount your data directory into
-`/app/data` so that the API can access CSV files for training.  See
-the **Training a model** section below for usage.
+* **Augmented Dickey–Fuller (ADF) test:** the null hypothesis is
+  that the series contains a unit root (i.e. it is non‑stationary).
+  A small p‑value allows us to reject non‑stationarity and conclude
+  that the series is stationary.
+* **Kwiatkowski–Phillips–Schmidt–Shin (KPSS) test:** the null
+  hypothesis is that the series is stationary around a deterministic
+  trend.  A large p‑value (greater than 0.05) indicates stationarity
+  while a small p‑value suggests non‑stationarity.
 
-### Running locally
+If both tests agree that the occupancy signal is stationary then a
+simple probability‑of‑occupancy model often outperforms more complex
+techniques.  Stationary signals are common in buildings with highly
+repetitive weekly occupancy patterns, and in such cases the
+probability model is robust to sensor noise because it uses the
+historical frequency of occupancy rather than raw counts.
 
-If you prefer to run the API without Docker you can install the
-package in editable mode.  Clone the repository and install the
-dependencies (Python 3.9+ is required):
+## Notebooks
 
-```bash
-git clone <this-repo>
-cd predictive-occ-modeling-develop/predictive-occ-modeling-develop
-pip install .
-```
+The [notebooks](https://github.com/bbartling/predictive-occ-modeling/tree/develop/notebooks) directory contains several example Jupyter notebooks that demonstrate key concepts such as stationarity testing, baseline modeling, and lag analysis. Some of the datasets used in these notebooks are Kaggle-sourced CSV files related to occupancy and thermal comfort. The notebooks incorporate both the occupancy dataset and a weather dataset to highlight the differences between stationary and non-stationary signals.
 
-This will install the required packages including
-[`fastapi`](https://fastapi.tiangolo.com/) and
-[`uvicorn`](https://www.uvicorn.org/).  You can then start the API
-locally:
+## Model Used
 
-```bash
-uvicorn src.api:app --host 0.0.0.0 --port 8000
-```
+This project uses a probability-based, time-slot occupancy model built directly from historical data. Instead of training a machine-learning algorithm, the method divides the week into discrete time buckets (such as 15-minute intervals across a seven-day cycle) and computes the empirical probability that each bucket is occupied. For every time slot, the system examines how often the space was occupied in past weeks, converts these frequencies into a probability between zero and one, and applies a configurable threshold (`prob_threshold`) to generate a final binary occupied or unoccupied schedule. Because the model is non-parametric, fully explainable, and based entirely on observed frequencies, it remains extremely stable, resilient to noisy sensor inputs, and lightweight enough to run on constrained Building Automation Systems or edge devices. From a statistical perspective, the method estimates the empirical distribution of occupancy over repeating weekly cycles, producing a reliable schedule whenever the underlying time-series data ***is stationary***.
 
-Your CSV data must be accessible to the process (either in the
-repository’s `data/` folder or via an absolute path).  Refer to the
-examples below for usage.
 
-## API Reference
 
-### `POST /train`
+---
 
-Train a probability‑based occupancy model from a CSV file.  The
-request body must be JSON conforming to the following schema:
+## 📜 License
 
-```json
-{
-  "data_path": "data/occupancy_sample.csv",
-  "time_col": "time",          // optional – default "time"
-  "occ_col": "occ",            // optional – default "occ"
-  "tz": "UTC",                 // optional – default "UTC"
-  "deadband": 1.0,             // optional – default 1.0
-  "prob_threshold": 0.5        // optional – default 0.5
-}
-```
+Everything here is **MIT Licensed** — free, open source, and made for the BAS community.  
+Use it, remix it, or improve it — just share it forward so others can benefit too. 🥰🌍
 
-On success the API returns a summary including the number of records
-processed, the inferred sampling interval in minutes and p‑values
-from the Augmented Dickey–Fuller (ADF) and KPSS stationarity tests【502360774470064†L199-L212】【502360774470064†L243-L253】.
-If the CSV cannot be loaded or parsed a 400 response is returned.
 
-### `GET /state`
+【MIT License】
 
-Retrieve the current occupancy state and next transition.  An
-optional `at` query parameter accepts an ISO 8601 timestamp in UTC
-(`YYYY‑MM‑DDThh:mm:ssZ`) to evaluate the state at a particular
-moment.  If omitted the server uses its current time.  The
-response contains:
+Copyright 2025 Ben Bartling
 
-* `reference_time` – the time the state was evaluated (UTC).  
-* `current_state` – either `OCCUPIED` or `UNOCCUPIED`.  
-* `probability` – the historical probability of occupancy for the
-  current time slot.  
-* `next_transition` – an object describing when the state will next
-  change, including the transition type (`START` or `END`), the
-  number of minutes until it occurs and the UTC timestamp of the
-  transition.
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
 
-If no model has been trained yet the endpoint returns a 400 error.
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
 
-### `GET /schedule`
-
-Return the full weekly schedule as a JSON payload.  The response
-includes the slot length (`step_minutes`), a list of fractional hours
-(`hours`) corresponding to the row index and a nested list (`schedule`)
-whose inner lists contain seven integers (one per day of week,
-0 = Monday) indicating occupancy (1) or vacancy (0).  This matrix is
-equivalent to the CSV exported in the original CLI implementation
-and can be used by a BAS to perform simple schedule lookups.
-
-## Training a model (example)
-
-Suppose you have a 15‑minute occupancy dataset at `data/occupancy_sample.csv`.
-To train a model and view its summary using curl:
-
-```bash
-curl -X POST http://localhost:8000/train \
-  -H "Content-Type: application/json" \
-  -d '{"data_path": "data/occupancy_sample.csv", "deadband": 1.0, "prob_threshold": 0.5}'
-```
-
-The response might look like this:
-
-```json
-{
-  "message": "Model trained successfully",
-  "records": 20160,
-  "step_minutes": 15,
-  "adf_p": 0.0000,
-  "adf_stationary": true,
-  "kpss_p": 0.1000,
-  "kpss_stationary": true
-}
-```
-
-This indicates that the occupancy signal appears stationary based on
-both tests and that the model uses 15‑minute slots.  Internally the
-probability of occupancy is calculated for each of the 96 slots in a
-day and for each day of the week, and the binary schedule is
-constructed by comparing those probabilities to the `prob_threshold`.
-
-## Querying occupancy and next transition
-
-After training you can query the current state.  By default the
-server uses its own clock:
-
-```bash
-curl http://localhost:8000/state
-```
-
-The JSON response contains the reference time, whether the zone is
-currently occupied and details of the next state change.  For
-example:
-
-```json
-{
-  "reference_time": "2025-11-22T15:30:00+00:00",
-  "current_state": "OCCUPIED",
-  "probability": 0.72,
-  "next_transition": {
-    "type": "END",
-    "in_minutes": 90,
-    "at": "2025-11-22T17:00:00+00:00"
-  }
-}
-```
-
-This means that at 15:30 the model predicts occupancy and expects it
-to end 90 minutes later (at 17:00 UTC).  You can also supply a
-specific timestamp via `?at=YYYY-MM-DDTHH:MM:SSZ` to evaluate the
-state in the past or future.
-
-## Retrieving the full schedule
-
-To fetch the complete schedule matrix:
-
-```bash
-curl http://localhost:8000/schedule
-```
-
-The response includes the slot size and the matrix.  You can
-convert this JSON into a CSV if required.  Each row corresponds to
-a time of day (fractional hours) and each column corresponds to a
-day of week (0 = Monday, 6 = Sunday).  A value of 1 means the zone
-is predicted occupied at that time; 0 means unoccupied.
-
-## Testing scripts
-
-For convenience, this repository includes three simple Python
-scripts in the `scripts/` directory:
-
-* `train_model.py` – sends a POST request to the `/train` endpoint
-  with a JSON payload pointing to a local CSV.  Adjust the URL and
-  file paths as needed.
-* `query_state.py` – polls the `/state` endpoint once and prints
-  the JSON response.  You can optionally pass an ISO timestamp via
-  command‑line arguments.
-* `get_schedule.py` – retrieves the full schedule via `/schedule`
-  and writes it to a CSV file on disk.
-
-These scripts rely on the `requests` library, which you can install
-with `pip install requests` if needed.
-
-## Configuring deadband and probability threshold
-
-Two parameters govern how the model interprets your data:
-
-* **Deadband (`deadband`)** – used during cleaning.  Raw counts
-  less than or equal to the deadband are considered unoccupied and
-  set to zero.  Higher counts are considered occupied.  For
-  instance, with `deadband = 1.0` both 0 and 1 count as unoccupied,
-  while counts ≥ 2 count as occupied.
-
-* **Probability threshold (`prob_threshold`)** – used when
-  constructing the final schedule.  After the historical probability
-  of occupancy is computed for each slot, any probability greater
-  than or equal to this threshold results in the slot being marked
-  occupied.  Lower probabilities result in an unoccupied slot.
-
-Adjust these values in the training request to tune sensitivity and
-occupancy aggressiveness for your application.
-
-## Conceptual extension: live BAS integration
-
-The final schedule matrix provides a simple static lookup table that
-can be ingested by a modern BAS that supports CSV import.  A BAS can
-look up the current day and time in the matrix to determine whether
-to run occupied or unoccupied control strategies.  For more dynamic
-operation, the `/state` endpoint supplies both the current
-prediction and the next transition, enabling **optimal start** or
-look‑ahead algorithms without requiring full schedule parsing.  By
-exposing these queries over HTTP, a low‑power edge device can
-operate as a microservice within a larger BAS architecture, while
-the notebooks in this repository remain available for offline
-analysis and validation.
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
