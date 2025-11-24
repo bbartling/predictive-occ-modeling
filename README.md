@@ -42,7 +42,7 @@ The [notebooks](https://github.com/bbartling/predictive-occ-modeling/tree/develo
 
 This project uses a probability-based, time-slot occupancy model built directly from historical data. Instead of training a machine-learning algorithm, the method divides the week into discrete time buckets (such as 15-minute intervals across a seven-day cycle) and computes the empirical probability that each bucket is occupied. For every time slot, the system examines how often the space was occupied in past weeks, converts these frequencies into a probability between zero and one, and applies a configurable threshold (`prob_threshold`) to generate a final binary occupied or unoccupied schedule. Because the model is non-parametric, fully explainable, and based entirely on observed frequencies, it remains extremely stable, resilient to noisy sensor inputs, and lightweight enough to run on constrained Building Automation Systems or edge devices. From a statistical perspective, the method estimates the empirical distribution of occupancy over repeating weekly cycles, producing a reliable schedule whenever the underlying time-series data ***is stationary***.
 
-See Proof-Of-Concept [README_IOT](https://github.com/bbartling/predictive-occ-modeling/blob/develop/README_IOT.md)
+See Proof-Of-Concept [README_IOT](https://github.com/bbartling/predictive-occ-modeling/blob/develop/README_iot.md)
 
 ---
 
