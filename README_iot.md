@@ -1,46 +1,107 @@
 # IoT POC App
 
-## Installation
+## Docker
 
-### Running with Docker
+The simplest way to run the API on an edge device is inside a
+container.  A `Dockerfile` lives alongside `pyproject.toml` in the
+project root.  **Be sure to execute the following commands from the
+directory containing `Dockerfile` and `pyproject.toml`**—otherwise
+Docker will not find the Python project.
 
-The recommended way to run the API is inside a container.  A
-`Dockerfile` is provided at the project root.  Build the image and
-start the server as follows:
-
-```bash
-docker build -t predictive-occ-modeling .
-docker run --rm -p 8000:8000 -v $(pwd)/data:/app/data predictive-occ-modeling
-```
-
-The server will listen on port 8000.  Mount your data directory into
-`/app/data` so that the API can access CSV files for training.  See
-the **Training a model** section below for usage.
-
-### Running locally
-
-If you prefer to run the API without Docker you can install the
-package in editable mode.  Clone the repository and install the
-dependencies (Python 3.9+ is required):
+Build:
 
 ```bash
-git clone <this-repo>
-cd predictive-occ-modeling-develop/predictive-occ-modeling-develop
-pip install .
+
+docker stop predictive-occ-api
+docker rm predictive-occ-api
+docker build -t predictive-occ-api .
 ```
 
-This will install the required packages including
-[`fastapi`](https://fastapi.tiangolo.com/) and
-[`uvicorn`](https://www.uvicorn.org/).  You can then start the API
-locally:
-
+Run:
 ```bash
-uvicorn src.api:app --host 0.0.0.0 --port 8000
+
+docker run --name predictive-occ-api \
+  --rm \
+  -p 8000:8000 \
+  -v "$(pwd)/data:/app/data" \
+  predictive-occ-api
 ```
 
-Your CSV data must be accessible to the process (either in the
-repository’s `data/` folder or via an absolute path).  Refer to the
-examples below for usage.
+*Visit the Swagger API docs:*
+➡️ **[http://localhost:8000/docs](http://localhost:8000/docs)**
+
+---
+
+Restart:
+```bash
+docker restart predictive-occ-api
+```
+
+Prune:
+```bash
+docker system prune -a --volumes
+```
+
+
+---
+
+## Testing scripts
+Start the API (either via Docker or locally as described above).  To
+exercise the endpoints without writing your own `curl` commands,
+the repository provides three helper scripts in the `scripts/`
+directory:
+
+* **`train_model.py`** – sends a POST request to `/train` with a JSON
+  payload pointing to a CSV on disk.  For example, after starting
+  the server you can train using the sample data with:
+
+  ```bash
+  python scripts/train_model.py --data data/occupancy_sample.csv
+  ```
+
+  This will return a JSON summary of the training job.
+
+* **`query_state.py`** – calls `/state` and prints the current
+  occupancy state and next transition.  Optionally pass `--at
+  YYYY-MM-DDTHH:MM:SSZ` to evaluate at a specific timestamp:
+
+  ```bash
+  python scripts/query_state.py
+  python scripts/query_state.py --at 2025-11-22T15:45:00Z
+  ```
+
+* **`get_schedule.py`** – calls `/schedule` and writes the returned
+  matrix to a CSV file.  For instance:
+
+  ```bash
+  python scripts/get_schedule.py --output my_schedule.csv
+  ```
+
+The scripts use the `requests` library to call the API.  If it
+is not already installed as part of your environment, install it
+via `pip install requests`.  They default to `http://localhost:8000` but
+accept a `--url` argument if you run the server on a different host
+or port.
+
+## Configuring deadband and probability threshold
+
+Two parameters govern how the model interprets your data:
+
+* **Deadband (`deadband`)** – used during cleaning.  Raw counts
+  less than or equal to the deadband are considered unoccupied and
+  set to zero.  Higher counts are considered occupied.  For
+  instance, with `deadband = 1.0` both 0 and 1 count as unoccupied,
+  while counts ≥ 2 count as occupied.
+
+* **Probability threshold (`prob_threshold`)** – used when
+  constructing the final schedule.  After the historical probability
+  of occupancy is computed for each slot, any probability greater
+  than or equal to this threshold results in the slot being marked
+  occupied.  Lower probabilities result in an unoccupied slot.
+
+Adjust these values in the training request to tune sensitivity and
+occupancy aggressiveness for your application.
+
 
 ## API Reference
 
@@ -170,39 +231,4 @@ a time of day (fractional hours) and each column corresponds to a
 day of week (0 = Monday, 6 = Sunday).  A value of 1 means the zone
 is predicted occupied at that time; 0 means unoccupied.
 
-## Testing scripts
-
-For convenience, this repository includes three simple Python
-scripts in the `scripts/` directory:
-
-* `train_model.py` – sends a POST request to the `/train` endpoint
-  with a JSON payload pointing to a local CSV.  Adjust the URL and
-  file paths as needed.
-* `query_state.py` – polls the `/state` endpoint once and prints
-  the JSON response.  You can optionally pass an ISO timestamp via
-  command‑line arguments.
-* `get_schedule.py` – retrieves the full schedule via `/schedule`
-  and writes it to a CSV file on disk.
-
-These scripts rely on the `requests` library, which you can install
-with `pip install requests` if needed.
-
-## Configuring deadband and probability threshold
-
-Two parameters govern how the model interprets your data:
-
-* **Deadband (`deadband`)** – used during cleaning.  Raw counts
-  less than or equal to the deadband are considered unoccupied and
-  set to zero.  Higher counts are considered occupied.  For
-  instance, with `deadband = 1.0` both 0 and 1 count as unoccupied,
-  while counts ≥ 2 count as occupied.
-
-* **Probability threshold (`prob_threshold`)** – used when
-  constructing the final schedule.  After the historical probability
-  of occupancy is computed for each slot, any probability greater
-  than or equal to this threshold results in the slot being marked
-  occupied.  Lower probabilities result in an unoccupied slot.
-
-Adjust these values in the training request to tune sensitivity and
-occupancy aggressiveness for your application.
 

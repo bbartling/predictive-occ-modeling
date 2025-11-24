@@ -1,0 +1,42 @@
+## Predictive Occupancy Modeling
+
+# This file defines the build configuration for the predictive occupancy
+# modeling pipeline. It follows PEP 621 and uses a modern `pyproject.toml`
+# configuration with setuptools.  The package exposes a command‑line
+# script named ``predictive-occ-modeling`` that dispatches to the
+# ``main`` function in ``src/main.py``.  All dependencies required for
+# running the models and generating plots are declared in the
+# ``dependencies`` section.
+
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "predictive-occupancy-modeling"
+version = "0.1.0"
+description = "Predictive occupancy modelling pipeline"
+readme = "README.md"
+requires-python = ">=3.9"
+authors = [
+  { name = "Ben Bartling" },
+]
+license = { file = "LICENSE" }
+dependencies = [
+  "pandas",
+  "numpy",
+  "statsmodels",
+  "fastapi",
+  "uvicorn[standard]",
+]
+
+#[project.scripts]
+# The command‑line interface has been removed in favour of a REST API.
+# To run the API, use ``uvicorn src.api:app`` or run the Docker
+# container provided in this repository.
+
+[tool.setuptools.packages.find]
+# Look for packages under ``src`` and include only the ``predictive_occ``
+# subpackage.  The API lives outside of ``src`` and is not packaged.
+where = ["src"]
+include = ["predictive_occ*"]

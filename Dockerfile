@@ -31,4 +31,8 @@ EXPOSE 8000
 
 # Default command: launch the FastAPI server via uvicorn.  Uvicorn
 # will read the app object from src.api and listen on all interfaces.
-CMD ["uvicorn", "src.api:app", "--host", "0.0.0.0", "--port", "8000"]
+# Run the FastAPI server from the new api.app module.  The working
+# directory is added to sys.path by uvicorn so ``api.app:app`` resolves
+# correctly.  Note that ``src/api.py`` remains for backward
+# compatibility but ``api/app.py`` is now the canonical entrypoint.
+CMD ["uvicorn", "api.app:app", "--host", "0.0.0.0", "--port", "8000"]
